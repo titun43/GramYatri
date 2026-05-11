@@ -1,0 +1,279 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  phone         String    @unique
+  name          String?
+  avatar        String?
+  role          String    @default("USER") // USER, DRIVER, ADMIN
+  isVerified    Boolean   @default(false)
+  isBlocked     Boolean   @default(false)
+  adminPassword String?   // Only for ADMIN role
+  fcmToken      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  driver        Driver?
+  wallet        Wallet?
+  rides         Ride[]
+  ratingsGiven  Rating[]
+  emergencies   EmergencyAlert[]
+  notifications Notification[]
+  disputes      Dispute[]
+  sharedRidePassengers SharedRidePassenger[]
+}
+
+model Driver {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  vehicleType     String   // TEMPO, AUTO, E_RICKSHAW
+  vehicleNumber   String
+  vehiclePhoto    String?
+  aadhaarNumber   String?
+  aadhaarPhoto    String?
+  licenseNumber   String
+  licensePhoto    String?
+  rcNumber        String?
+  rcPhoto         String?
+  isApproved      Boolean  @default(false)
+  verificationStatus String @default("PENDING") // PENDING, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED
+  rejectReason    String?
+  isOnline        Boolean  @default(false)
+  isSuspended     Boolean  @default(false)
+  suspendReason   String?
+  currentLat      Float?
+  currentLng      Float?
+  rating          Float    @default(0)
+  totalRides      Int      @default(0)
+  totalEarnings   Float    @default(0)
+  currentRouteId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  rides           Ride[]
+  ratingsReceived Rating[]
+  withdrawRequests WithdrawRequest[]
+  commissions     Commission[]
+}
+
+model Ride {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  driverId        String?
+  driver          Driver?  @relation(fields: [driverId], references: [id])
+  pickupLat       Float?
+  pickupLng       Float?
+  pickupAddress   String
+  dropLat         Float?
+  dropLng         Float?
+  dropAddress     String
+  fare            Float    @default(0)
+  distance        Float    @default(0)
+  duration        Int      @default(0) // minutes
+  status          String   @default("PENDING") // PENDING, ACCEPTED, ARRIVING, IN_PROGRESS, COMPLETED, CANCELLED
+  paymentMethod   String   @default("CASH") // CASH, WALLET
+  paymentStatus   String   @default("PENDING") // PENDING, PAID, FAILED
+  isShared        Boolean  @default(false)
+  sharedRideId    String?  @unique
+  routeId         String?
+  offerCode       String?
+  discount        Float    @default(0)
+  cancelledBy     String?  // USER, DRIVER
+  cancelReason    String?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  ratings         Rating[]
+  emergencyAlerts EmergencyAlert[]
+  disputes        Dispute[]
+  commission      Commission?
+  sharedRide      SharedRide? @relation(fields: [sharedRideId], references: [id])
+}
+
+model Route {
+  id          String   @id @default(cuid())
+  name        String
+  fromLocation String
+  toLocation  String
+  stops       String   // JSON string of stops
+  fare        Float
+  distance    Float
+  duration    Int      // minutes
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sharedRides SharedRide[]
+}
+
+model SharedRide {
+  id              String   @id @default(cuid())
+  routeId         String
+  route           Route    @relation(fields: [routeId], references: [id])
+  driverId        String
+  departureTime   DateTime
+  availableSeats  Int      @default(6)
+  totalSeats      Int      @default(6)
+  status          String   @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  passengers      SharedRidePassenger[]
+  ride            Ride?
+}
+
+model SharedRidePassenger {
+  id            String   @id @default(cuid())
+  sharedRideId  String
+  sharedRide    SharedRide @relation(fields: [sharedRideId], references: [id])
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  pickupStop    String
+  dropStop      String
+  fare          Float
+  status        String   @default("CONFIRMED") // CONFIRMED, CANCELLED, COMPLETED
+  createdAt     DateTime @default(now())
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  balance   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions Transaction[]
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  walletId    String
+  wallet      Wallet   @relation(fields: [walletId], references: [id])
+  amount      Float
+  type        String   // CREDIT, DEBIT
+  description String
+  referenceId String?  // rideId or withdrawId
+  createdAt   DateTime @default(now())
+}
+
+model WithdrawRequest {
+  id        String   @id @default(cuid())
+  driverId  String
+  driver    Driver   @relation(fields: [driverId], references: [id])
+  amount    Float
+  status    String   @default("PENDING") // PENDING, APPROVED, REJECTED, COMPLETED
+  upiId     String?
+  bankName  String?
+  accountNo String?
+  ifscCode  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OTP {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  expiresAt DateTime
+  isVerified Boolean @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  rideId    String
+  ride      Ride     @relation(fields: [rideId], references: [id])
+  fromUserId String
+  toUserId  String
+  toDriverId String?
+  driver    Driver?  @relation(fields: [toDriverId], references: [id])
+  user      User     @relation(fields: [fromUserId], references: [id])
+  rating    Int      // 1-5
+  review    String?
+  createdAt DateTime @default(now())
+}
+
+model EmergencyAlert {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  rideId    String?
+  ride      Ride?    @relation(fields: [rideId], references: [id])
+  lat       Float?
+  lng       Float?
+  message   String?
+  status    String   @default("ACTIVE") // ACTIVE, RESOLVED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Offer {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  title        String
+  description  String?
+  discount     Float
+  type         String    @default("PERCENTAGE") // PERCENTAGE, FLAT
+  minFare      Float     @default(0)
+  maxDiscount  Float     @default(0)
+  isActive     Boolean   @default(true)
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO, RIDE, PAYMENT, ALERT, PROMO
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Dispute {
+  id         String   @id @default(cuid())
+  rideId     String
+  ride       Ride     @relation(fields: [rideId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  driverId   String?
+  reason     String
+  status     String   @default("OPEN") // OPEN, IN_REVIEW, RESOLVED
+  resolution String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Commission {
+  id          String   @id @default(cuid())
+  driverId    String
+  driver      Driver   @relation(fields: [driverId], references: [id])
+  rideId      String   @unique
+  ride        Ride     @relation(fields: [rideId], references: [id])
+  amount      Float
+  percentage  Float
+  createdAt   DateTime @default(now())
+}
+
+model AppSetting {
+  id                String   @id @default(cuid())
+  key               String   @unique
+  value             String
+  description       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
