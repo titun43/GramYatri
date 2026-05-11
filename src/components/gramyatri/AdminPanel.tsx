@@ -2091,6 +2091,116 @@ export default function AdminPanel() {
                 </CardContent>
               </Card>
 
+              {/* Service Area / Coverage */}
+              <Card className="border-0 shadow-md">
+                <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4 text-emerald-600" />Service Area / Coverage</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-xs text-muted-foreground">Set the maximum distance and areas where your GramYatri service operates.</p>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <label className="text-xs text-muted-foreground font-medium">Maximum Service Radius (km)</label>
+                      <div className="flex items-center gap-3 mt-1">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={appSettings.find(s => s.key === 'service_max_radius')?.value || '30'}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setAppSettings(prev => {
+                              const exists = prev.find(s => s.key === 'service_max_radius')
+                              if (exists) return prev.map(s => s.key === 'service_max_radius' ? { ...s, value: val } : s)
+                              return [...prev, { id: 'new_radius', key: 'service_max_radius', value: val, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+                            })
+                          }}
+                          className="w-24"
+                        />
+                        <span className="text-sm text-muted-foreground">km from driver location</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1">Rides beyond this distance won't be offered to drivers.</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <label className="text-xs text-muted-foreground font-medium">Service Center (Your main city/town)</label>
+                      <Input
+                        placeholder="e.g. Nagaon, Hojai, Lanka"
+                        value={appSettings.find(s => s.key === 'service_center')?.value || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setAppSettings(prev => {
+                            const exists = prev.find(s => s.key === 'service_center')
+                            if (exists) return prev.map(s => s.key === 'service_center' ? { ...s, value: val } : s)
+                            return [...prev, { id: 'new_center', key: 'service_center', value: val, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+                          })
+                        }}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <label className="text-xs text-muted-foreground font-medium">Service Areas (comma-separated)</label>
+                      <textarea
+                        placeholder="e.g. Nagaon, Hojai, Lanka, Diphu, Guwahati"
+                        value={appSettings.find(s => s.key === 'service_areas')?.value || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setAppSettings(prev => {
+                            const exists = prev.find(s => s.key === 'service_areas')
+                            if (exists) return prev.map(s => s.key === 'service_areas' ? { ...s, value: val } : s)
+                            return [...prev, { id: 'new_areas', key: 'service_areas', value: val, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+                          })
+                        }}
+                        className="w-full mt-1 p-2 border rounded-md text-sm bg-background min-h-[60px]"
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-1">Only rides within these areas will be accepted.</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <label className="text-xs text-muted-foreground font-medium">Maximum Ride Distance (km)</label>
+                      <div className="flex items-center gap-3 mt-1">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={200}
+                          value={appSettings.find(s => s.key === 'service_max_ride_distance')?.value || '50'}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setAppSettings(prev => {
+                              const exists = prev.find(s => s.key === 'service_max_ride_distance')
+                              if (exists) return prev.map(s => s.key === 'service_max_ride_distance' ? { ...s, value: val } : s)
+                              return [...prev, { id: 'new_max_ride', key: 'service_max_ride_distance', value: val, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+                            })
+                          }}
+                          className="w-24"
+                        />
+                        <span className="text-sm text-muted-foreground">km maximum ride distance</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1">Rides longer than this will be rejected.</p>
+                    </div>
+                  </div>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={async () => {
+                      try {
+                        const settingsToSave = [
+                          { key: 'service_max_radius', value: appSettings.find(s => s.key === 'service_max_radius')?.value || '30' },
+                          { key: 'service_center', value: appSettings.find(s => s.key === 'service_center')?.value || '' },
+                          { key: 'service_areas', value: appSettings.find(s => s.key === 'service_areas')?.value || '' },
+                          { key: 'service_max_ride_distance', value: appSettings.find(s => s.key === 'service_max_ride_distance')?.value || '50' },
+                        ]
+                        const res = await updateAdminSettings(settingsToSave)
+                        if (res.success) {
+                          toast.success('Service area settings saved!')
+                        } else {
+                          toast.error('Failed to save settings')
+                        }
+                      } catch {
+                        toast.error('Error saving settings')
+                      }
+                    }}
+                  >
+                    <MapPin className="h-4 w-4 mr-2" />Save Service Area
+                  </Button>
+                </CardContent>
+              </Card>
+
               {/* Offers */}
               <Card className="border-0 shadow-md">
                 <CardHeader className="pb-2">

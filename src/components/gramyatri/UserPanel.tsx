@@ -252,7 +252,10 @@ export default function UserPanel() {
   const [vehicleType, setVehicleType] = useState('TEMPO')
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'WALLET'>('CASH')
   const [offerCode, setOfferCode] = useState('')
-  const [distance, setDistance] = useState(5)
+  const [distance, setDistance] = useState(0)
+  const [distanceLoading, setDistanceLoading] = useState(false)
+  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [dropCoords, setDropCoords] = useState<{ lat: number; lng: number } | null>(null)
   const [searching, setSearching] = useState(false)
   const [addMoneyAmount, setAddMoneyAmount] = useState('')
   const [showEmergencyDialog, setShowEmergencyDialog] = useState(false)
@@ -344,6 +347,7 @@ export default function UserPanel() {
 
   // UPI Payment settings
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({ upiId: '', paymentQrUrl: '', paymentInstructions: '', upiPaymentEnabled: false })
+  const [serviceMaxRideDistance, setServiceMaxRideDistance] = useState(50)
   const [showUpiPayment, setShowUpiPayment] = useState(false)
   const [upiPaid, setUpiPaid] = useState(false)
 
@@ -352,8 +356,125 @@ export default function UserPanel() {
   const dropRef = useRef<HTMLDivElement>(null)
   const rideTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fare = calculateFare(vehicleType, distance)
+  const fare = calculateFare(vehicleType, distance || 1)
   const discountedFare = offerApplied ? Math.max(0, fare.total - offerDiscount) : fare.total
+  const perKmRate = vehicleType === 'TEMPO' ? 8 : vehicleType === 'AUTO' ? 12 : 6
+
+  // ─── OSRM Distance Calculation ────────────────────────────────────
+  const calculateRouteDistance = useCallback(async (pCoords: { lat: number; lng: number }, dCoords: { lat: number; lng: number }) => {
+    setDistanceLoading(true)
+    try {
+      // Use OSRM (Open Source Routing Machine) for real road distance
+      const res = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${pCoords.lng},${pCoords.lat};${dCoords.lng},${dCoords.lat}?overview=false`,
+        { headers: { 'User-Agent': 'GramYatri/2.0' } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (data.routes && data.routes.length > 0) {
+          const distKm = Math.round((data.routes[0].distance / 1000) * 10) / 10 // round to 1 decimal
+          setDistance(distKm)
+          return
+        }
+      }
+      // Fallback: Haversine straight-line distance * 1.3 (road factor)
+      const R = 6371
+      const dLat = (dCoords.lat - pCoords.lat) * Math.PI / 180
+      const dLon = (dCoords.lng - pCoords.lng) * Math.PI / 180
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(pCoords.lat * Math.PI / 180) * Math.cos(dCoords.lat * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2)
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+      const straightLine = R * c
+      setDistance(Math.round(straightLine * 1.3 * 10) / 10)
+    } catch {
+      // Fallback: Haversine
+      const R = 6371
+      const dLat = (dCoords.lat - pCoords.lat) * Math.PI / 180
+      const dLon = (dCoords.lng - pCoords.lng) * Math.PI / 180
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(pCoords.lat * Math.PI / 180) * Math.cos(dCoords.lat * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2)
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+      const straightLine = R * c
+      setDistance(Math.round(straightLine * 1.3 * 10) / 10)
+    } finally {
+      setDistanceLoading(false)
+    }
+  }, [])
+
+  // Geocode a location name to coordinates using Nominatim
+  const geocodeLocation = useCallback(async (locationName: string): Promise<{ lat: number; lng: number } | null> => {
+    try {
+      // First try with Assam, India bounding box for better results
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&viewbox=89.5,26.5,96.0,24.5&bounded=0&limit=1&accept-language=as,en`,
+        { headers: { 'User-Agent': 'GramYatri/2.0' } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (data.length > 0) {
+          return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+        }
+      }
+      // Fallback without bounding box
+      const res2 = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&limit=1&accept-language=as,en`,
+        { headers: { 'User-Agent': 'GramYatri/2.0' } }
+      )
+      if (res2.ok) {
+        const data2 = await res2.json()
+        if (data2.length > 0) {
+          return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) }
+        }
+      }
+    } catch {
+      // geocoding failed
+    }
+    return null
+  }, [])
+
+  // Auto-calculate distance when both pickup and drop are set
+  useEffect(() => {
+    if (!pickup || !drop) {
+      setDistance(0)
+      setPickupCoords(null)
+      setDropCoords(null)
+      return
+    }
+
+    // If we already have both coordinates, calculate distance
+    if (pickupCoords && dropCoords) {
+      calculateRouteDistance(pickupCoords, dropCoords)
+      return
+    }
+
+    // Otherwise geocode the locations first
+    const geocodeAndCalculate = async () => {
+      setDistanceLoading(true)
+      let pCoords = pickupCoords
+      let dCoords = dropCoords
+
+      if (!pCoords) {
+        pCoords = await geocodeLocation(pickup.replace('(GPS)', '').trim())
+        if (pCoords) setPickupCoords(pCoords)
+      }
+      if (!dCoords) {
+        dCoords = await geocodeLocation(drop.replace('(GPS)', '').trim())
+        if (dCoords) setDropCoords(dCoords)
+      }
+
+      if (pCoords && dCoords) {
+        await calculateRouteDistance(pCoords, dCoords)
+      } else {
+        setDistanceLoading(false)
+      }
+    }
+
+    // Debounce to avoid too many API calls while typing
+    const timer = setTimeout(geocodeAndCalculate, 800)
+    return () => clearTimeout(timer)
+  }, [pickup, drop, pickupCoords, dropCoords, calculateRouteDistance, geocodeLocation])
 
   const unreadNotifCount = userNotifications.filter(n => !n.read).length
 
@@ -501,9 +622,16 @@ export default function UserPanel() {
     }
   }, [userId])
 
-  // Load payment settings on mount
+  // Load payment settings & service area on mount
   useEffect(() => {
     getPaymentSettings().then(setPaymentSettings)
+    // Load service area settings
+    fetch('/api/admin/settings').then(r => r.json()).then(data => {
+      if (data.success && data.settings) {
+        const maxDist = data.settings.find((s: { key: string; value: string }) => s.key === 'service_max_ride_distance')
+        if (maxDist) setServiceMaxRideDistance(parseInt(maxDist.value) || 50)
+      }
+    }).catch(() => {})
   }, [])
 
   // Load data on mount and when tab changes
@@ -656,6 +784,8 @@ export default function UserPanel() {
 
           // Only set pickup if it's currently empty
           setPickup(prev => prev || locationName)
+          // Also set pickup coordinates so distance calculation works immediately
+          setPickupCoords({ lat, lng })
         } catch {
           // Silent fail for auto-detect
         }
@@ -685,6 +815,7 @@ export default function UserPanel() {
 
   const handlePickupChange = (val: string) => {
     setPickup(val)
+    setPickupCoords(null) // Reset coords so they get re-geocoded
     if (val.length > 0) {
       const filtered = LOCATION_SUGGESTIONS.filter(s => s.toLowerCase().includes(val.toLowerCase()))
       setPickupSuggestions(filtered)
@@ -696,6 +827,7 @@ export default function UserPanel() {
 
   const handleDropChange = (val: string) => {
     setDrop(val)
+    setDropCoords(null) // Reset coords so they get re-geocoded
     if (val.length > 0) {
       const filtered = LOCATION_SUGGESTIONS.filter(s => s.toLowerCase().includes(val.toLowerCase()))
       setDropSuggestions(filtered)
@@ -780,9 +912,11 @@ export default function UserPanel() {
 
         if (target === 'pickup') {
           setPickup(locationName)
+          setPickupCoords({ lat, lng })
           setShowPickupSuggestions(false)
         } else {
           setDrop(locationName)
+          setDropCoords({ lat, lng })
           setShowDropSuggestions(false)
         }
         toast.success('অৱস্থান চিনাক্ত হ\'ল! / Location detected!')
@@ -1055,8 +1189,6 @@ export default function UserPanel() {
     { key: 'AUTO', label: 'Auto', emoji: '🚗', desc: '₹20 + ₹12/km', icon: Car },
     { key: 'E_RICKSHAW', label: 'E-Rickshaw', emoji: '🛵', desc: '₹10 + ₹6/km', icon: Bike },
   ]
-
-  const perKmRate = vehicleType === 'TEMPO' ? 8 : vehicleType === 'AUTO' ? 12 : 6
 
   const emergencyContacts = [
     { label: 'Police', number: '100' },
@@ -1590,7 +1722,7 @@ export default function UserPanel() {
                                   <button
                                     key={s}
                                     className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 flex items-center gap-2"
-                                    onClick={() => { setPickup(s); setShowPickupSuggestions(false) }}
+                                    onClick={() => { setPickup(s); setPickupCoords(null); setShowPickupSuggestions(false) }}
                                   >
                                     <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
                                     {s}
@@ -1619,7 +1751,7 @@ export default function UserPanel() {
                                   <button
                                     key={s}
                                     className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 flex items-center gap-2"
-                                    onClick={() => { setDrop(s); setShowDropSuggestions(false) }}
+                                    onClick={() => { setDrop(s); setDropCoords(null); setShowDropSuggestions(false) }}
                                   >
                                     <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
                                     {s}
@@ -1719,39 +1851,58 @@ export default function UserPanel() {
                   )}
                 </div>
 
-                {/* Distance Slider */}
+                {/* Distance & Fare Card (auto-calculated) */}
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">Estimated Distance</span>
-                      <span className="text-sm text-muted-foreground">{distance} km</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={30}
-                      value={distance}
-                      onChange={(e) => setDistance(parseInt(e.target.value))}
-                      className="w-full accent-emerald-600"
-                    />
-                    <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                      <span>1 km</span>
-                      <span>30 km</span>
-                    </div>
+                    {distanceLoading ? (
+                      <div className="flex items-center justify-center gap-2 py-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                        <span className="text-sm text-muted-foreground">{lang === 'as' ? 'দূৰত্ব গণনা কৰি আছে...' : 'Calculating distance...'}</span>
+                      </div>
+                    ) : distance > 0 ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium flex items-center gap-1.5">
+                            <Route className="h-4 w-4 text-emerald-600" />
+                            {lang === 'as' ? 'আনুমানিক দূৰত্ব' : 'Estimated Distance'}
+                          </span>
+                          <span className="text-lg font-bold text-emerald-600">{distance} km</span>
+                        </div>
+                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-emerald-500 rounded-full transition-all duration-500" 
+                            style={{ width: `${Math.min(100, (distance / 30) * 100)}%` }} 
+                          />
+                        </div>
+                        <div className="flex justify-between text-[10px] text-muted-foreground">
+                          <span>0 km</span>
+                          <span>30 km</span>
+                        </div>
+                      </div>
+                    ) : pickup && drop ? (
+                      <div className="text-center py-2">
+                        <p className="text-xs text-muted-foreground">{lang === 'as' ? 'দূৰত্ব গণনা কৰিব নোৱাৰি — অনুগ্ৰহ কৰি স্পষ্ট ঠিকনা লিখক' : 'Could not calculate distance — please enter clear addresses'}</p>
+                      </div>
+                    ) : (
+                      <div className="text-center py-2">
+                        <p className="text-xs text-muted-foreground">{lang === 'as' ? 'পিকআপ আৰু ড্ৰপ ঠিকনা লিখক দূৰত্ব জানিবলৈ' : 'Enter pickup & drop locations to see distance'}</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
                 {/* Fare Breakdown Card */}
+                {distance > 0 && (
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4">
-                    <h3 className="font-semibold text-sm mb-3">Fare Estimate</h3>
+                    <h3 className="font-semibold text-sm mb-3">{t('fareEstimate')}</h3>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Base Fare</span>
+                        <span className="text-muted-foreground">{t('baseFare')}</span>
                         <span>₹{fare.baseFare}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Distance ({distance} km × ₹{perKmRate})</span>
+                        <span className="text-muted-foreground">{t('distance')} ({distance} km × ₹{perKmRate})</span>
                         <span>₹{fare.distanceFare}</span>
                       </div>
                       {offerApplied && offerDiscount > 0 && (
@@ -1768,8 +1919,25 @@ export default function UserPanel() {
                     </div>
                   </CardContent>
                 </Card>
+                )}
 
-                {/* Offer Code & Payment Method */}
+                {/* Service Area Warning */}
+                {distance > serviceMaxRideDistance && (
+                  <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-800">
+                    <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-red-700 dark:text-red-400">
+                        {lang === 'as' ? 'এই ৰাইড সেৱা সীমাৰ বাহিৰত' : 'This ride is outside service area'}
+                      </p>
+                      <p className="text-xs text-red-600/70 dark:text-red-400/70">
+                        {lang === 'as' 
+                          ? `সৰ্বাধিক ${serviceMaxRideDistance} km লৈকে সেৱা উপলব্ধ। আপোনাৰ ৰাইড ${distance} km।`
+                          : `Service available up to ${serviceMaxRideDistance} km. Your ride is ${distance} km.`
+                        }
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-center gap-2">
@@ -1836,14 +2004,14 @@ export default function UserPanel() {
                 <Button
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-12 text-base font-bold"
                   onClick={() => setShowBookingConfirm(true)}
-                  disabled={searching || !pickup || !drop}
+                  disabled={searching || !pickup || !drop || distance <= 0 || distanceLoading || distance > serviceMaxRideDistance}
                 >
                   {searching ? (
                     <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }} className="mr-2">
                       <Clock className="h-5 w-5" />
                     </motion.div>
                   ) : null}
-                  {searching ? 'Searching for drivers...' : `Book Ride - ₹${discountedFare}`}
+                  {searching ? 'Searching for drivers...' : distanceLoading ? (lang === 'as' ? 'দূৰত্ব গণনা হৈ আছে...' : 'Calculating...') : distance > 0 ? `Book Ride - ₹${discountedFare}` : (lang === 'as' ? 'ঠিকনা লিখক' : 'Enter locations')}
                 </Button>
 
                 {/* Google Maps Link below book button */}
