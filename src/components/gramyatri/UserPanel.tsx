@@ -13,7 +13,7 @@ import {
   Radio, TrendingUp, ChevronDown, Edit3, Eye, EyeOff,
   PhoneCall, Truck, Bike, Locate, Route, Timer,
   Share2, Info, CreditCard, CircleDot, Move, ExternalLink,
-  ThumbsUp, Heart, Copy
+  ThumbsUp, Heart, Copy, Globe
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -93,11 +93,11 @@ function mapApiRideToRide(apiRide: Record<string, unknown>): Ride {
 }
 
 // Time-based greeting
-function getGreeting(): string {
+function getGreeting(lang: Lang): string {
   const h = new Date().getHours()
-  if (h < 12) return 'Good Morning'
-  if (h < 17) return 'Good Afternoon'
-  return 'Good Evening'
+  if (h < 12) return lang === 'as' ? 'সুপ্ৰভাত' : 'Good Morning'
+  if (h < 17) return lang === 'as' ? 'শুভ দুপৰীয়া' : 'Good Afternoon'
+  return lang === 'as' ? 'শুভ সন্ধিয়া' : 'Good Evening'
 }
 
 // Format seconds to mm:ss
@@ -128,6 +128,95 @@ const LOCATION_SUGGESTIONS = [
   'Hojai Court', 'Guwahati Airport', 'Kaziranga National Park',
 ]
 
+// Bilingual translations — English & Assamese
+type Lang = 'en' | 'as'
+const T: Record<string, Record<Lang, string>> = {
+  'whereTo': { en: 'Where to today?', as: 'আজি ক\'লৈ যাব?' },
+  'bookRide': { en: 'Book Ride', as: 'ৰাইড বুক কৰক' },
+  'sharedTempo': { en: 'Shared Tempo', as: 'শ্বেয়াৰ্ড টেম্প' },
+  'wallet': { en: 'Wallet', as: 'ৱালেট' },
+  'history': { en: 'History', as: 'ইতিহাস' },
+  'pickup': { en: 'Pickup location', as: 'পিকআপ ঠিকনা' },
+  'drop': { en: 'Drop location', as: 'ড্ৰপ ঠিকনা' },
+  'searchRides': { en: 'Search Rides', as: 'ৰাইড সন্ধান কৰক' },
+  'selectVehicle': { en: 'Select Vehicle', as: 'বাহন বাছনি কৰক' },
+  'nearbyDrivers': { en: 'Nearby Drivers', as: 'ওচৰৰ চালক' },
+  'noDrivers': { en: 'No drivers nearby', as: 'ওচৰত কোনো চালক নাই' },
+  'fareEstimate': { en: 'Fare Estimate', as: 'ভাড়া অনুমান' },
+  'applyOffer': { en: 'Apply Offer', as: 'অফাৰ প্ৰয়োগ কৰক' },
+  'payCash': { en: 'Pay with Cash', as: 'নগদত দিয়ক' },
+  'payWallet': { en: 'Pay with Wallet', as: 'ৱালেটেৰে দিয়ক' },
+  'bookNow': { en: 'Book Now', as: 'এতিয়া বুক কৰক' },
+  'addMoney': { en: 'Add Money', as: 'পইচা যোগ কৰক' },
+  'walletBalance': { en: 'Wallet Balance', as: 'ৱালেট বেলেন্স' },
+  'transactions': { en: 'Transactions', as: 'লেনদেন' },
+  'noTransactions': { en: 'No transactions yet', as: 'এতিয়ালৈকে কোনো লেনদেন নাই' },
+  'rideHistory': { en: 'Ride History', as: 'ৰাইড ইতিহাস' },
+  'noRides': { en: 'No rides yet', as: 'এতিয়ালৈকে কোনো ৰাইড নাই' },
+  'profile': { en: 'Profile', as: 'প্ৰ\u0027ফাইল' },
+  'totalRides': { en: 'Total Rides', as: 'মুঠ ৰাইড' },
+  'avgRating': { en: 'Avg Rating', as: 'গড় ৰেটিং' },
+  'notifications': { en: 'Notifications', as: 'জাননী' },
+  'noNotifications': { en: 'No notifications', as: 'কোনো জাননী নাই' },
+  'about': { en: 'About', as: 'বিষয়ে' },
+  'help': { en: 'Help & Support', as: 'সাহায্য আৰু সমৰ্থন' },
+  'logout': { en: 'Logout', as: 'লগআউট' },
+  'emergency': { en: 'Emergency SOS', as: 'জৰুৰীকালীন SOS' },
+  'cancel': { en: 'Cancel', as: 'বাতিল কৰক' },
+  'confirm': { en: 'Confirm', as: 'নিশ্চিত কৰক' },
+  'save': { en: 'Save', as: 'সংৰক্ষণ কৰক' },
+  'goodMorning': { en: 'Good Morning', as: 'সুপ্ৰভাত' },
+  'goodAfternoon': { en: 'Good Afternoon', as: 'শুভ দুপৰীয়া' },
+  'goodEvening': { en: 'Good Evening', as: 'শুভ সন্ধিয়া' },
+  'searchingDriver': { en: 'Searching for Driver', as: 'চালক সন্ধান কৰি আছে' },
+  'driverFound': { en: 'Driver Found - Arriving', as: 'চালক পোৱা গ\'ল - আহি আছে' },
+  'rideInProgress': { en: 'Ride in Progress', as: 'ৰাইড চলি আছে' },
+  'rideCompleted': { en: 'Ride Completed', as: 'ৰাইড সম্পূৰ্ণ হ\'ল' },
+  'rideCancelled': { en: 'Ride Cancelled', as: 'ৰাইড বাতিল হ\'ল' },
+  'rateDriver': { en: 'Rate your ride', as: 'আপোনাৰ ৰাইড ৰেট কৰক' },
+  'callDriver': { en: 'Call Driver', as: 'চালকক কল কৰক' },
+  'cancelRide': { en: 'Cancel Ride', as: 'ৰাইড বাতিল কৰক' },
+  'shareRide': { en: 'Share Ride', as: 'ৰাইড শ্বেয়াৰ কৰক' },
+  'darkMode': { en: 'Dark Mode', as: 'ডাৰ্ক মোড' },
+  'language': { en: 'অসমীয়া / English', as: 'English / অসমীয়া' },
+  'detectLocation': { en: 'Detect Location', as: 'অৱস্থান চিনাক্ত কৰক' },
+  'distance': { en: 'Distance', as: 'দূৰত্ব' },
+  'fare': { en: 'Fare', as: 'ভাড়া' },
+  'baseFare': { en: 'Base Fare', as: 'মৌলিক ভাড়া' },
+  'perKm': { en: 'per km', as: 'প্ৰতি কি.মি.' },
+  'off': { en: 'off', as: 'ৰেহাই' },
+  'enterAmount': { en: 'Enter amount (₹)', as: 'পৰিমাণ লিখক (₹)' },
+  'quickAdd': { en: 'Quick Add', as: 'দ্ৰুত যোগ' },
+  'passenger': { en: 'Passenger', as: 'যাত্ৰী' },
+  'verified': { en: 'Verified', as: 'যাচাইকৃত' },
+  'memberSince': { en: 'Member since', as: 'সদস্যৰ পৰা' },
+  'editProfile': { en: 'Edit Profile', as: 'প্ৰ\u0027ফাইল সম্পাদনা' },
+  'settings': { en: 'Settings', as: 'ছেটিংছ' },
+  'allRides': { en: 'All', as: 'সকলো' },
+  'completed': { en: 'Completed', as: 'সম্পূৰ্ণ' },
+  'cancelled': { en: 'Cancelled', as: 'বাতিল' },
+  'allNotifs': { en: 'All', as: 'সকলো' },
+  'rideNotifs': { en: 'Ride', as: 'ৰাইড' },
+  'offerNotifs': { en: 'Offer', as: 'অফাৰ' },
+  'systemNotifs': { en: 'System', as: 'চিষ্টেম' },
+  'recentRides': { en: 'Recent Rides', as: 'শেহতীয়া ৰাইড' },
+  'activeOffers': { en: 'Active Offers', as: 'সক্ৰিয় অফাৰ' },
+  'sendSOS': { en: 'Send SOS', as: 'SOS পঠিয়াওক' },
+  'sosMessage': { en: 'Emergency message (optional)', as: 'জৰুৰীকালীন বাৰ্তা (ঐচ্ছিক)' },
+  'sosSent': { en: 'Emergency SOS sent! Help is on the way.', as: 'জৰুৰীকালীন SOS পঠিয়াওৱা হ\'ল! সাহায্য আহি আছে।' },
+  'offerApplied': { en: 'Offer applied! You save', as: 'অফাৰ প্ৰয়োগ হ\'ল! আপুনি বচালে' },
+  'invalidOffer': { en: 'Invalid or expired offer code', as: 'অবৈধ বা অকালম্যাদ অফাৰ ক\u0027ড' },
+  'walletUpdated': { en: 'Wallet updated', as: 'ৱালেট আপডেট হ\'ল' },
+  'completePayment': { en: 'Complete Payment First', as: 'প্ৰথমে পেমেণ্ট সম্পূৰ্ণ কৰক' },
+  'payFirst': { en: 'Pay ₹{{amount}} via UPI first. Money will be added after you confirm.', as: 'প্ৰথমে UPI যোগে ₹{{amount}} দিয়ক। নিশ্চিত কৰাৰ পাছত পইচা যোগ হ\'ব।' },
+  'iConfirmPayment': { en: 'I have completed the UPI payment of ₹{{amount}}', as: 'মই UPI যোগে ₹{{amount}} পেমেণ্ট সম্পূৰ্ণ কৰিছো' },
+  'confirmPayment': { en: 'Confirm Payment', as: 'পেমেণ্ট নিশ্চিত কৰক' },
+  'amountToPay': { en: 'Amount to Pay', as: 'পেমেণ্ট কৰিব লগা পৰিমাণ' },
+  'payToUpi': { en: 'Pay to UPI ID', as: 'UPI ID লৈ দিয়ক' },
+  'paymentInstructions': { en: 'Payment Instructions', as: 'পেমেণ্ট নিৰ্দেশনা' },
+  'scanQR': { en: 'Scan QR code to pay', as: 'পেমেণ্ট কৰিবলৈ QR ক\u0027ড স্কেন কৰক' },
+}
+
 // Ride status progression for live tracking
 const RIDE_STATUS_FLOW = ['SEARCHING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'] as const
 
@@ -149,13 +238,8 @@ interface UserNotification {
   createdAt: string
 }
 
-const MOCK_NOTIFICATIONS: UserNotification[] = [
-  { id: 'n1', title: 'Ride Completed', message: 'Your ride from Lanka to Hojai has been completed. Rate your driver!', type: 'ride', read: false, createdAt: new Date().toISOString() },
-  { id: 'n2', title: '50% Off Offer!', message: 'Use code GRAM50 for 50% off on your next ride. Valid till March 31!', type: 'offer', read: false, createdAt: new Date(Date.now() - 3600000).toISOString() },
-  { id: 'n3', title: 'App Updated', message: 'GramYatri v2.0 is here! Check out shared tempo rides and more.', type: 'system', read: true, createdAt: new Date(Date.now() - 86400000).toISOString() },
-  { id: 'n4', title: 'Wallet Credited', message: '₹200 has been added to your wallet successfully.', type: 'system', read: true, createdAt: new Date(Date.now() - 172800000).toISOString() },
-  { id: 'n5', title: 'Driver Arriving', message: 'Your driver Raju is arriving in 3 minutes!', type: 'ride', read: false, createdAt: new Date(Date.now() - 600000).toISOString() },
-]
+// No mock notifications — only real notifications from the database
+const EMPTY_NOTIFICATIONS: UserNotification[] = []
 
 export default function UserPanel() {
   const { currentUser, activeRide, setActiveRide, logout, updateWalletBalance, notifications, markNotificationRead } = useAppStore()
@@ -182,6 +266,28 @@ export default function UserPanel() {
     }
     return false
   })
+
+  // Language state — persisted in localStorage
+  const [lang, setLang] = useState<Lang>(() => {
+    if (typeof localStorage !== 'undefined') {
+      return (localStorage.getItem('gramyatri-lang') as Lang) || 'as'
+    }
+    return 'as'
+  })
+  const t = (key: string, replacements?: Record<string, string | number>): string => {
+    let text = T[key]?.[lang] || T[key]?.en || key
+    if (replacements) {
+      Object.entries(replacements).forEach(([k, v]) => {
+        text = text.replace(`{{${k}}}`, String(v))
+      })
+    }
+    return text
+  }
+  const toggleLang = () => {
+    const newLang = lang === 'as' ? 'en' : 'as'
+    setLang(newLang)
+    localStorage.setItem('gramyatri-lang', newLang)
+  }
 
   // --- Real data state ---
   const [sharedRides, setSharedRides] = useState<Ride[]>([])
@@ -212,7 +318,7 @@ export default function UserPanel() {
   const [nearbyDriversLoading, setNearbyDriversLoading] = useState(false)
   const [showBookingConfirm, setShowBookingConfirm] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
-  const [userNotifications, setUserNotifications] = useState<UserNotification[]>(MOCK_NOTIFICATIONS)
+  const [userNotifications, setUserNotifications] = useState<UserNotification[]>(EMPTY_NOTIFICATIONS)
   const [notifFilter, setNotifFilter] = useState<'all' | 'ride' | 'offer' | 'system'>('all')
   const [showProfileEdit, setShowProfileEdit] = useState(false)
   const [editName, setEditName] = useState(currentUser?.name || '')
@@ -371,6 +477,30 @@ export default function UserPanel() {
     }
   }, [])
 
+  const loadNotifications = useCallback(async () => {
+    if (!userId) return
+    try {
+      const res = await fetch(`/api/notifications?userId=${userId}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success && data.notifications) {
+          const mapped: UserNotification[] = data.notifications.map((n: Record<string, unknown>) => ({
+            id: String(n.id),
+            title: String(n.title || ''),
+            message: String(n.message || ''),
+            type: (String(n.type || 'system').toLowerCase() === 'ride' ? 'ride' :
+                   String(n.type || 'system').toLowerCase() === 'offer' || String(n.type || 'system').toLowerCase() === 'promo' ? 'offer' : 'system') as UserNotification['type'],
+            read: Boolean(n.isRead),
+            createdAt: String(n.createdAt || new Date().toISOString()),
+          }))
+          setUserNotifications(mapped)
+        }
+      }
+    } catch {
+      // keep current notifications
+    }
+  }, [userId])
+
   // Load payment settings on mount
   useEffect(() => {
     getPaymentSettings().then(setPaymentSettings)
@@ -380,7 +510,8 @@ export default function UserPanel() {
   useEffect(() => {
     // Load wallet on mount to get real balance from DB
     loadWallet()
-  }, [loadWallet])
+    loadNotifications()
+  }, [loadWallet, loadNotifications])
 
   useEffect(() => {
     if (activeTab === 'home') {
@@ -484,6 +615,58 @@ export default function UserPanel() {
     }
   }, [])
 
+  // Auto-detect GPS location on first mount (silent, no error toasts)
+  const gpsAutoDetected = useRef(false)
+  useEffect(() => {
+    if (gpsAutoDetected.current) return
+    gpsAutoDetected.current = true
+
+    if (!navigator.geolocation) return
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+        setUserLat(lat)
+        setUserLng(lng)
+
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1&accept-language=as,en`,
+            { headers: { 'User-Agent': 'GramYatri/2.0' } }
+          )
+          if (!res.ok) return
+          const data = await res.json()
+          if (data.error) return
+
+          const addr = data.address || {}
+          const parts: string[] = []
+          const village = addr.village || addr.hamlet || addr.town || addr.neighbourhood || addr.suburb
+          if (village) parts.push(village)
+          const road = addr.road || addr.pedestrian
+          if (road && !parts.includes(road)) parts.push(road)
+          const city = addr.city || addr.county
+          if (city && !parts.includes(city)) parts.push(city)
+
+          const locationName = parts.length > 0
+            ? parts.slice(0, 3).join(', ') + ' (GPS)'
+            : data.display_name
+              ? data.display_name.split(',').slice(0, 2).map((s: string) => s.trim()).join(', ') + ' (GPS)'
+              : `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
+
+          // Only set pickup if it's currently empty
+          setPickup(prev => prev || locationName)
+        } catch {
+          // Silent fail for auto-detect
+        }
+      },
+      () => {
+        // GPS denied or unavailable — silent, user can click detect button manually
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+    )
+  }, [])
+
   // Click outside to close suggestions
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -524,22 +707,30 @@ export default function UserPanel() {
 
   const handleGpsDetect = async (target: 'pickup' | 'drop') => {
     setGpsDetecting(true)
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const lat = position.coords.latitude
-          const lng = position.coords.longitude
-          setUserLat(lat)
-          setUserLng(lng)
 
-          // Helper: try reverse geocoding at a given zoom level
-          const reverseGeocode = async (zoom: number): Promise<string> => {
+    if (!navigator.geolocation) {
+      toast.error('GPS is not supported by your browser')
+      setGpsDetecting(false)
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+        setUserLat(lat)
+        setUserLng(lng)
+
+        // Helper: try reverse geocoding at a given zoom level
+        const reverseGeocode = async (zoom: number): Promise<string> => {
+          try {
             const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&accept-language=hi,en`,
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&accept-language=as,en`,
               { headers: { 'User-Agent': 'GramYatri/2.0' } }
             )
             if (!res.ok) return ''
             const data = await res.json()
+            if (data.error) return ''
             const addr = data.address || {}
             const parts: string[] = []
 
@@ -556,8 +747,6 @@ export default function UserPanel() {
             const city = addr.city || addr.city_district || addr.county
             if (city && !parts.includes(city)) parts.push(city)
 
-            // Skip state (too broad for a pickup location)
-
             // Limit to 2-3 parts for readability
             if (parts.length > 0) {
               return parts.slice(0, 3).join(', ') + ' (GPS)'
@@ -568,45 +757,52 @@ export default function UserPanel() {
               return displayParts.slice(0, 2).join(', ') + ' (GPS)'
             }
             return ''
-          }
-
-          let locationName = ''
-          try {
-            // Use zoom=14 (village/neighborhood level — better for rural areas than zoom=18)
-            locationName = await reverseGeocode(14)
-            // If nothing useful at zoom 14, try zoom=12 for a broader area
-            if (!locationName) {
-              locationName = await reverseGeocode(12)
-            }
           } catch {
-            // Reverse geocoding failed
+            return ''
           }
+        }
 
+        let locationName = ''
+        try {
+          // Use zoom=14 (village/neighborhood level — better for rural areas)
+          locationName = await reverseGeocode(14)
+          // If nothing useful at zoom 14, try zoom=12 for a broader area
           if (!locationName) {
-            locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
+            locationName = await reverseGeocode(12)
           }
+        } catch {
+          // Reverse geocoding failed
+        }
 
-          if (target === 'pickup') {
-            setPickup(locationName)
-            setShowPickupSuggestions(false)
-          } else {
-            setDrop(locationName)
-            setShowDropSuggestions(false)
-          }
-          toast.success('Location detected!')
-          setGpsDetecting(false)
-        },
-        () => {
-          // Fallback - GPS failed
-          toast.error('Could not detect location. Please enable GPS and try again.')
-          setGpsDetecting(false)
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-      )
-    } else {
-      toast.error('Geolocation is not supported by your browser')
-      setGpsDetecting(false)
-    }
+        if (!locationName) {
+          locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
+        }
+
+        if (target === 'pickup') {
+          setPickup(locationName)
+          setShowPickupSuggestions(false)
+        } else {
+          setDrop(locationName)
+          setShowDropSuggestions(false)
+        }
+        toast.success('অৱস্থান চিনাক্ত হ\'ল! / Location detected!')
+        setGpsDetecting(false)
+      },
+      (error) => {
+        // GPS failed — show specific error message
+        let msg = 'GPS চিনাক্ত কৰিব পৰা নগ\'ল।'
+        if (error.code === 1) {
+          msg = 'অৱস্থান অনুমতি অস্বীকাৰ কৰা হৈছে। ব্ৰাউজাৰ ছেটিংছত GPS অন কৰক।'
+        } else if (error.code === 2) {
+          msg = 'অৱস্থান পোৱা নগ\'ল। অনুগ্ৰহ কৰি মুক্ত আকাশৰ তলত চেষ্টা কৰক।'
+        } else if (error.code === 3) {
+          msg = 'GPS টাইমআউট। পুনৰ চেষ্টা কৰক।'
+        }
+        toast.error(msg)
+        setGpsDetecting(false)
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    )
   }
 
   const handleSearchRide = async () => {
@@ -716,25 +912,50 @@ export default function UserPanel() {
     const amount = parseInt(addMoneyAmount)
     if (!amount || amount <= 0 || !userId) return
 
-    // Always add money directly to wallet
+    // Check if UPI payment is configured by admin
+    if (paymentSettings.upiPaymentEnabled && (paymentSettings.upiId || paymentSettings.paymentQrUrl)) {
+      // UPI is configured — show payment first, add money only after user confirms payment
+      setShowUpiPayment(true)
+    } else {
+      // No UPI configured — direct add (for demo/testing only)
+      try {
+        const result = await addWalletMoney(userId, amount)
+        if (result.success) {
+          setWalletBalance(result.balance)
+          updateWalletBalance(result.balance)
+          toast.success(`₹${amount} added to wallet`)
+          loadWalletTransactions()
+        } else {
+          toast.error('Failed to add money')
+        }
+      } catch {
+        toast.error('Failed to add money. Please try again.')
+      }
+      setAddMoneyAmount('')
+    }
+  }
+
+  const handleUpiPaymentDone = async () => {
+    const amount = parseInt(addMoneyAmount)
+    if (!amount || amount <= 0 || !userId) return
+
+    // User confirmed they completed UPI payment — now add money to wallet
     try {
       const result = await addWalletMoney(userId, amount)
       if (result.success) {
         setWalletBalance(result.balance)
         updateWalletBalance(result.balance)
-        toast.success(`₹${amount} added to wallet`)
+        toast.success(`₹${amount} added to wallet after payment`)
         loadWalletTransactions()
-        // If UPI is configured, show UPI info as a reminder for real-world payment
-        if (paymentSettings.upiPaymentEnabled && (paymentSettings.upiId || paymentSettings.paymentQrUrl)) {
-          setShowUpiPayment(true)
-        }
       } else {
-        toast.error('Failed to add money')
+        toast.error('Failed to update wallet. Please contact support.')
       }
     } catch {
-      toast.error('Failed to add money. Please try again.')
+      toast.error('Failed to update wallet. Please contact support.')
     }
     setAddMoneyAmount('')
+    setShowUpiPayment(false)
+    setUpiPaid(false)
   }
 
   const toggleTheme = () => {
@@ -822,11 +1043,11 @@ export default function UserPanel() {
   }
 
   const tabs: { key: UserTab; label: string; icon: typeof Home }[] = [
-    { key: 'home', label: 'Home', icon: Home },
-    { key: 'search', label: 'Search', icon: Search },
-    { key: 'rides', label: 'Rides', icon: ClipboardList },
-    { key: 'wallet', label: 'Wallet', icon: WalletIcon },
-    { key: 'profile', label: 'Profile', icon: UserIcon },
+    { key: 'home', label: lang === 'as' ? 'গৃহ' : 'Home', icon: Home },
+    { key: 'search', label: lang === 'as' ? 'সন্ধান' : 'Search', icon: Search },
+    { key: 'rides', label: lang === 'as' ? 'ৰাইড' : 'Rides', icon: ClipboardList },
+    { key: 'wallet', label: t('wallet'), icon: WalletIcon },
+    { key: 'profile', label: t('profile'), icon: UserIcon },
   ]
 
   const vehicleOptions = [
@@ -965,10 +1186,10 @@ export default function UserPanel() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold">
-                    {getGreeting()}, {currentUser?.name?.split(' ')[0] || 'Traveller'} 👋
+                    {getGreeting(lang)}, {currentUser?.name?.split(' ')[0] || (lang === 'as' ? 'যাত্ৰী' : 'Traveller')} 👋
                   </h2>
                   <p className="text-muted-foreground text-sm">
-                    Where to today?
+                    {t('whereTo')}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1786,8 +2007,8 @@ export default function UserPanel() {
                             <p className="font-semibold text-base">{activeRide.driverName}</p>
                             <p className="text-xs text-muted-foreground">{activeRide.driverVehicle}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              {renderStars(Math.round(activeRide.rating || 4.5), false)}
-                              <span className="text-xs text-muted-foreground">{(activeRide.rating || 4.5).toFixed(1)}</span>
+                              {renderStars(Math.round(activeRide.rating || 0), false)}
+                              <span className="text-xs text-muted-foreground">{activeRide.rating ? activeRide.rating.toFixed(1) : 'N/A'}</span>
                               <span className="text-[10px] text-muted-foreground">• {Math.floor(Math.random() * 400) + 100} rides</span>
                             </div>
                           </div>
@@ -2068,17 +2289,25 @@ export default function UserPanel() {
                 </CardContent>
               </Card>
 
-              {/* UPI Payment Info Dialog (informational — money already added) */}
-              <Dialog open={showUpiPayment} onOpenChange={setShowUpiPayment}>
+              {/* UPI Payment Dialog — pay first, then money is added */}
+              <Dialog open={showUpiPayment} onOpenChange={(open) => { setShowUpiPayment(open); if (!open) setUpiPaid(false) }}>
                 <DialogContent className="max-w-sm">
                   <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                      <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                      Wallet Updated
+                      <CreditCard className="h-5 w-5 text-emerald-600" />
+                      Complete Payment First
                     </DialogTitle>
-                    <DialogDescription>Money has been added to your wallet. You may complete the UPI payment below.</DialogDescription>
+                    <DialogDescription>
+                      Pay ₹{addMoneyAmount} via UPI first. Money will be added to your wallet after you confirm payment.
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
+                    {/* Amount display */}
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Amount to Pay</p>
+                      <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400">₹{addMoneyAmount}</p>
+                    </div>
+
                     {paymentSettings.paymentQrUrl && (
                       <div className="p-3 bg-muted/50 rounded-lg text-center">
                         <img src={paymentSettings.paymentQrUrl} alt="Payment QR Code" className="max-h-40 mx-auto rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
@@ -2110,16 +2339,43 @@ export default function UserPanel() {
                         <p className="text-xs text-muted-foreground">{paymentSettings.paymentInstructions}</p>
                       </div>
                     )}
+
                     <Separator />
-                    <Button
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-                      onClick={() => {
-                        setShowUpiPayment(false)
-                        setUpiPaid(false)
-                      }}
-                    >
-                      Done
-                    </Button>
+
+                    {/* Confirm payment checkbox */}
+                    <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-lg">
+                      <input
+                        type="checkbox"
+                        id="upi-confirm"
+                        checked={upiPaid}
+                        onChange={(e) => setUpiPaid(e.target.checked)}
+                        className="mt-1 accent-emerald-600"
+                      />
+                      <label htmlFor="upi-confirm" className="text-xs text-amber-800 dark:text-amber-200">
+                        I have completed the UPI payment of ₹{addMoneyAmount}. Money will be added to my wallet.
+                      </label>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => {
+                          setShowUpiPayment(false)
+                          setUpiPaid(false)
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        disabled={!upiPaid}
+                        onClick={handleUpiPaymentDone}
+                      >
+                        <CheckCircle2 className="h-4 w-4 mr-1" />
+                        Confirm Payment
+                      </Button>
+                    </div>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -2181,8 +2437,12 @@ export default function UserPanel() {
                 </Card>
                 <Card className="border-0 shadow-sm">
                   <CardContent className="p-3 text-center">
-                    <p className="text-lg font-bold text-yellow-600">4.5</p>
-                    <p className="text-[10px] text-muted-foreground">Avg Rating</p>
+                    <p className="text-lg font-bold text-yellow-600">
+                      {currentUser?.rating && currentUser.rating > 0 ? currentUser.rating.toFixed(1) : (lang === 'as' ? 'নাই' : 'N/A')}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {currentUser?.rating && currentUser.rating > 0 ? t('avgRating') : (lang === 'as' ? 'এতিয়ালৈকে ৰেটিং নাই' : 'No ratings yet')}
+                    </p>
                   </CardContent>
                 </Card>
               </div>
@@ -2244,9 +2504,18 @@ export default function UserPanel() {
                   <div className="flex items-center justify-between py-3 border-b border-muted">
                     <div className="flex items-center gap-2">
                       {isDark ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-                      <span className="text-sm">Dark Mode</span>
+                      <span className="text-sm">{t('darkMode')}</span>
                     </div>
                     <Switch checked={isDark} onCheckedChange={toggleTheme} />
+                  </div>
+                  <div className="flex items-center justify-between py-3 border-b border-muted">
+                    <div className="flex items-center gap-2">
+                      <Globe className="h-4 w-4" />
+                      <span className="text-sm">{t('language')}</span>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={toggleLang} className="text-xs">
+                      {lang === 'as' ? 'English' : 'অসমীয়া'}
+                    </Button>
                   </div>
                   <div className="flex items-center justify-between py-3 border-b border-muted">
                     <div className="flex items-center gap-2">

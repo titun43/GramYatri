@@ -9,9 +9,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'userId is required' }, { status: 400 })
     }
 
+    // Only show notifications from the last 7 days
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
     const notifications = await db.notification.findMany({
-      where: { userId },
+      where: {
+        userId,
+        createdAt: { gte: sevenDaysAgo },
+      },
       orderBy: { createdAt: 'desc' },
+      take: 50,
     })
 
     return NextResponse.json({ success: true, notifications })
