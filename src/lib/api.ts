@@ -102,42 +102,56 @@ export async function registerUser(data: {
   vehicleNumber?: string
   licenseNumber?: string
 }): Promise<User> {
-  const res = await apiCall<{
-    success: boolean
-    user: {
-      id: string
-      phone: string
-      name: string
-      role: string
-      isVerified: boolean
-      walletBalance?: number
-      vehicleType?: string
-      vehicleNumber?: string
-      isApproved?: boolean
-      rating?: number
-      totalRides?: number
-      totalEarnings?: number
-    }
-  }>('/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  })
+  try {
+    const res = await apiCall<{
+      success: boolean
+      message?: string
+      user?: {
+        id: string
+        phone: string
+        name: string
+        role: string
+        isVerified: boolean
+        isBlocked?: boolean
+        walletBalance?: number
+        vehicleType?: string
+        vehicleNumber?: string
+        isApproved?: boolean
+        isOnline?: boolean
+        rating?: number
+        totalRides?: number
+        totalEarnings?: number
+      }
+    }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
 
-  const u = res.user
-  return {
-    id: u.id,
-    name: u.name,
-    phone: u.phone,
-    role: u.role as Role,
-    walletBalance: u.walletBalance || 0,
-    isVerified: u.isVerified,
-    vehicleType: u.vehicleType,
-    vehicleNumber: u.vehicleNumber,
-    isApproved: u.isApproved,
-    rating: u.rating || 0,
-    totalRides: u.totalRides || 0,
-    totalEarnings: u.totalEarnings || 0,
-    isRegistered: u.role === 'DRIVER' ? !!u.vehicleType : true,
+    if (!res.success || !res.user) {
+      throw new Error(res.message || 'Registration failed on server')
+    }
+
+    const u = res.user
+    return {
+      id: u.id,
+      name: u.name || '',
+      phone: u.phone,
+      role: (u.role as Role) || 'USER',
+      walletBalance: u.walletBalance || 0,
+      isVerified: u.isVerified,
+      isBlocked: u.isBlocked,
+      vehicleType: u.vehicleType,
+      vehicleNumber: u.vehicleNumber,
+      isApproved: u.isApproved,
+      isOnline: u.isOnline,
+      rating: u.rating || 0,
+      totalRides: u.totalRides || 0,
+      totalEarnings: u.totalEarnings || 0,
+      isRegistered: u.role === 'DRIVER' ? !!u.vehicleType : true,
+    }
+  } catch (error) {
+    console.error('registerUser error:', error)
+    throw error
   }
 }
 

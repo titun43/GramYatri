@@ -3,10 +3,14 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
   try {
-    const { phone, code } = await req.json()
+    const body = await req.json()
+    const { phone, code } = body
 
     if (!phone || !code) {
-      return NextResponse.json({ success: false, message: 'Phone and code are required' }, { status: 400 })
+      return NextResponse.json(
+        { success: false, message: 'Phone and code are required' },
+        { status: 400 }
+      )
     }
 
     // Try DB-based OTP verification
@@ -23,7 +27,10 @@ export async function POST(req: NextRequest) {
       })
 
       if (!otp) {
-        return NextResponse.json({ success: false, message: 'Invalid or expired OTP' }, { status: 400 })
+        return NextResponse.json(
+          { success: false, message: 'Invalid or expired OTP' },
+          { status: 400 }
+        )
       }
 
       // Mark OTP as verified
@@ -85,16 +92,15 @@ export async function POST(req: NextRequest) {
           name: user.name,
           role: user.role,
           isVerified: user.isVerified,
-          isBlocked: user.isBlocked,
+          isBlocked: user.isBlocked || false,
           walletBalance: user.wallet?.balance || 0,
           vehicleType: user.driver?.vehicleType,
           vehicleNumber: user.driver?.vehicleNumber,
-          licenseNumber: user.driver?.licenseNumber,
           isApproved: user.driver?.isApproved,
           isOnline: user.driver?.isOnline,
-          rating: user.driver?.rating,
-          totalRides: user.driver?.totalRides,
-          totalEarnings: user.driver?.totalEarnings,
+          rating: user.driver?.rating || 0,
+          totalRides: user.driver?.totalRides || 0,
+          totalEarnings: user.driver?.totalEarnings || 0,
         },
       })
     } catch (dbError) {
@@ -107,6 +113,9 @@ export async function POST(req: NextRequest) {
     }
   } catch (error) {
     console.error('Verify OTP error:', error)
-    return NextResponse.json({ success: false, message: 'Failed to verify OTP' }, { status: 500 })
+    return NextResponse.json(
+      { success: false, message: 'Failed to verify OTP' },
+      { status: 500 }
+    )
   }
 }

@@ -149,9 +149,17 @@ export default function LoginScreen({ onAdminLogin }: { onAdminLogin?: () => voi
         licenseNumber: selectedRole === 'DRIVER' ? regLicense : undefined,
       })
       login(user)
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Registration failed:', err)
-      setError('Registration failed. Please try again.')
+      const errMsg = err instanceof Error ? err.message : 'Registration failed. Please try again.'
+      // Show a more helpful error message
+      if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('fetch failed')) {
+        setError('Network error. Please check your internet connection and try again.')
+      } else if (errMsg.includes('API Error: 500')) {
+        setError('Server error. Please try again in a moment.')
+      } else {
+        setError(errMsg || 'Registration failed. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
