@@ -253,7 +253,7 @@ function DocStatusBadge({ status }: { status: string }) {
 // ─── DriverPanel Component ────────────────────────────────────────────────────
 
 export default function DriverPanel() {
-  const { isOnline, setOnline, activeRide, setActiveRide, incomingRides, setIncomingRides, removeIncomingRide, currentUser, logout, updateWalletBalance } = useAppStore()
+  const { isOnline, setOnline, activeRide, setActiveRide, incomingRides, setIncomingRides, removeIncomingRide, currentUser, logout, updateWalletBalance, updateCurrentUser } = useAppStore()
   const { emitDriverStatus, emitDriverLocation, emitRideAccept, emitRideReject, emitRideComplete, emitRideCancel } = useSocket()
 
   const [activeTab, setActiveTab] = useState<DriverTab>('home')
@@ -930,6 +930,15 @@ export default function DriverPanel() {
         vehiclePhoto: vehiclePhotoPreview || undefined,
       })
       if (res.success) {
+        // Update store so the user is now recognized as a registered (but unapproved) driver
+        updateCurrentUser({
+          role: 'DRIVER',
+          vehicleType,
+          vehicleNumber,
+          licenseNumber,
+          isRegistered: true,
+          isApproved: false,
+        })
         toast.success('Registration submitted for verification!')
         setShowRegistration(false)
       }

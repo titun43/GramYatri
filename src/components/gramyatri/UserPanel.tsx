@@ -107,7 +107,7 @@ function formatDuration(seconds: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 }
 
-// Mock nearby driver data
+// Nearby driver data
 interface NearbyDriverInfo {
   id: string
   name: string
@@ -120,14 +120,6 @@ interface NearbyDriverInfo {
   lat: number
   lng: number
 }
-
-const MOCK_NEARBY_DRIVERS: NearbyDriverInfo[] = [
-  { id: 'd1', name: 'Raju Bhai', vehicleType: 'TEMPO', vehicleNumber: 'AS-01-AB-1234', rating: 4.5, eta: 3, distance: 1.2, totalRides: 342, lat: 26.15, lng: 91.74 },
-  { id: 'd2', name: 'Mohan Das', vehicleType: 'AUTO', vehicleNumber: 'AS-01-CD-5678', rating: 4.2, eta: 5, distance: 2.1, totalRides: 218, lat: 26.14, lng: 91.75 },
-  { id: 'd3', name: 'Anil Kumar', vehicleType: 'E_RICKSHAW', vehicleNumber: 'AS-01-EF-9012', rating: 4.8, eta: 2, distance: 0.8, totalRides: 567, lat: 26.16, lng: 91.73 },
-  { id: 'd4', name: 'Sanjay Sarma', vehicleType: 'TEMPO', vehicleNumber: 'AS-01-GH-3456', rating: 3.9, eta: 7, distance: 3.5, totalRides: 89, lat: 26.13, lng: 91.72 },
-  { id: 'd5', name: 'Dilip Borah', vehicleType: 'AUTO', vehicleNumber: 'AS-01-IJ-7890', rating: 4.6, eta: 4, distance: 1.8, totalRides: 431, lat: 26.155, lng: 91.745 },
-]
 
 // Location suggestions
 const LOCATION_SUGGESTIONS = [
@@ -199,7 +191,11 @@ export default function UserPanel() {
   const [rideHistoryLoading, setRideHistoryLoading] = useState(false)
   const [rideFilter, setRideFilter] = useState<'ALL' | 'COMPLETED' | 'CANCELLED'>('ALL')
 
-  const [walletBalance, setWalletBalance] = useState<number>(currentUser?.walletBalance || 0)
+  const [walletBalance, setWalletBalance] = useState<number>(0)
+  const [userLat, setUserLat] = useState(26.15)
+  const [userLng, setUserLng] = useState(91.74)
+  const [showAboutDialog, setShowAboutDialog] = useState(false)
+  const [showHelpDialog, setShowHelpDialog] = useState(false)
   const [walletLoading, setWalletLoading] = useState(false)
   const [walletTransactions, setWalletTransactions] = useState<Array<Record<string, unknown>>>([])
   const [walletTransactionsLoading, setWalletTransactionsLoading] = useState(false)
@@ -301,11 +297,17 @@ export default function UserPanel() {
     try {
       const res = await getWallet(userId)
       if (res.success && res.wallet) {
-        setWalletBalance(res.wallet.balance)
-        updateWalletBalance(res.wallet.balance)
+        const balance = res.wallet.balance ?? 0
+        setWalletBalance(balance)
+        // Always sync the store so stale localStorage data is overwritten
+        updateWalletBalance(balance)
+      } else {
+        // API returned but no wallet — set to 0
+        setWalletBalance(0)
+        updateWalletBalance(0)
       }
     } catch {
-      // keep existing balance
+      // API call failed — keep existing local state, don't overwrite with stale store data
     } finally {
       setWalletLoading(false)
     }
@@ -329,33 +331,34 @@ export default function UserPanel() {
   const loadNearbyDrivers = useCallback(async () => {
     setNearbyDriversLoading(true)
     try {
-      const res = await getNearbyDrivers(26.15, 91.74, vehicleType)
+      const res = await getNearbyDrivers(userLat, userLng, vehicleType)
       if (res.success && res.drivers && res.drivers.length > 0) {
         const mapped: NearbyDriverInfo[] = res.drivers.map((d: Record<string, unknown>, i: number) => {
           const user = d.user as Record<string, unknown> | undefined
+          const dist = Number(d.distance || 0)
           return {
             id: String(d.id || i),
             name: String(user?.name || 'Driver'),
             vehicleType: String(d.vehicleType || 'TEMPO'),
             vehicleNumber: String(d.vehicleNumber || ''),
             rating: Number(d.rating || 4.0),
-            eta: Math.floor(Math.random() * 8) + 2,
-            distance: Number(((Math.random() * 4) + 0.5).toFixed(1)),
-            totalRides: Number(d.totalRides || Math.floor(Math.random() * 500) + 50),
-            lat: 26.14 + Math.random() * 0.04,
-            lng: 91.72 + Math.random() * 0.04,
+            eta: Math.max(2, Math.round(dist * 3)),
+            distance: dist,
+            totalRides: Number(d.totalRides || 0),
+            lat: Number(d.currentLat || 26.14 + Math.random() * 0.04),
+            lng: Number(d.currentLng || 91.72 + Math.random() * 0.04),
           }
         })
         setNearbyDrivers(mapped)
       } else {
-        setNearbyDrivers(MOCK_NEARBY_DRIVERS)
+        setNearbyDrivers([])
       }
     } catch {
-      setNearbyDrivers(MOCK_NEARBY_DRIVERS)
+      setNearbyDrivers([])
     } finally {
       setNearbyDriversLoading(false)
     }
-  }, [vehicleType])
+  }, [vehicleType, userLat, userLng])
 
   const loadOffers = useCallback(async () => {
     try {
@@ -375,6 +378,11 @@ export default function UserPanel() {
 
   // Load data on mount and when tab changes
   useEffect(() => {
+    // Load wallet on mount to get real balance from DB
+    loadWallet()
+  }, [loadWallet])
+
+  useEffect(() => {
     if (activeTab === 'home') {
       loadSharedRides()
       loadOffers()
@@ -391,12 +399,10 @@ export default function UserPanel() {
     }
   }, [activeTab, loadSharedRides, loadNearbyDrivers, loadRideHistory, loadWallet, loadWalletTransactions, loadOffers])
 
-  // Sync wallet balance from store
-  useEffect(() => {
-    if (currentUser?.walletBalance !== undefined) {
-      setWalletBalance(currentUser.walletBalance)
-    }
-  }, [currentUser?.walletBalance])
+  // NOTE: We do NOT sync wallet balance from the Zustand store (currentUser.walletBalance)
+  // here because the store may contain stale data from localStorage persist.
+  // Instead, loadWallet() is the single source of truth — it fetches from the API
+  // and updates both the local state AND the store via updateWalletBalance().
 
   // Live tracking simulation for active ride + timer + distance + fare
   useEffect(() => {
@@ -516,42 +522,89 @@ export default function UserPanel() {
     }
   }
 
-  const handleGpsDetect = (target: 'pickup' | 'drop') => {
+  const handleGpsDetect = async (target: 'pickup' | 'drop') => {
     setGpsDetecting(true)
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        () => {
+        async (position) => {
+          const lat = position.coords.latitude
+          const lng = position.coords.longitude
+          setUserLat(lat)
+          setUserLng(lng)
+
+          // Helper: try reverse geocoding at a given zoom level
+          const reverseGeocode = async (zoom: number): Promise<string> => {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&accept-language=hi,en`,
+              { headers: { 'User-Agent': 'GramYatri/2.0' } }
+            )
+            if (!res.ok) return ''
+            const data = await res.json()
+            const addr = data.address || {}
+            const parts: string[] = []
+
+            // For rural Assam, village/hamlet name is most useful — prioritize it
+            const village = addr.village || addr.hamlet || addr.town || addr.neighbourhood ||
+              addr.quarter || addr.suburb || addr.residential
+            if (village) parts.push(village)
+
+            // Road/street if available and not already included
+            const road = addr.road || addr.pedestrian
+            if (road && !parts.includes(road)) parts.push(road)
+
+            // City/district level
+            const city = addr.city || addr.city_district || addr.county
+            if (city && !parts.includes(city)) parts.push(city)
+
+            // Skip state (too broad for a pickup location)
+
+            // Limit to 2-3 parts for readability
+            if (parts.length > 0) {
+              return parts.slice(0, 3).join(', ') + ' (GPS)'
+            }
+            // Fallback to display_name
+            if (data.display_name) {
+              const displayParts = data.display_name.split(',').map((s: string) => s.trim()).filter(Boolean)
+              return displayParts.slice(0, 2).join(', ') + ' (GPS)'
+            }
+            return ''
+          }
+
+          let locationName = ''
+          try {
+            // Use zoom=14 (village/neighborhood level — better for rural areas than zoom=18)
+            locationName = await reverseGeocode(14)
+            // If nothing useful at zoom 14, try zoom=12 for a broader area
+            if (!locationName) {
+              locationName = await reverseGeocode(12)
+            }
+          } catch {
+            // Reverse geocoding failed
+          }
+
+          if (!locationName) {
+            locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
+          }
+
           if (target === 'pickup') {
-            setPickup('Current Location (GPS)')
+            setPickup(locationName)
             setShowPickupSuggestions(false)
           } else {
-            setDrop('Current Location (GPS)')
+            setDrop(locationName)
             setShowDropSuggestions(false)
           }
           toast.success('Location detected!')
           setGpsDetecting(false)
         },
         () => {
-          // Fallback to mock
-          if (target === 'pickup') {
-            setPickup('Lanka Market, Assam')
-            setShowPickupSuggestions(false)
-          } else {
-            setDrop('Lanka Market, Assam')
-            setShowDropSuggestions(false)
-          }
-          toast.success('Location detected (approximate)')
+          // Fallback - GPS failed
+          toast.error('Could not detect location. Please enable GPS and try again.')
           setGpsDetecting(false)
         },
-        { timeout: 5000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       )
     } else {
-      if (target === 'pickup') {
-        setPickup('Lanka Market, Assam')
-      } else {
-        setDrop('Lanka Market, Assam')
-      }
-      toast.success('Location detected (approximate)')
+      toast.error('Geolocation is not supported by your browser')
       setGpsDetecting(false)
     }
   }
@@ -662,6 +715,8 @@ export default function UserPanel() {
   const handleAddMoney = async () => {
     const amount = parseInt(addMoneyAmount)
     if (!amount || amount <= 0 || !userId) return
+
+    // Always add money directly to wallet
     try {
       const result = await addWalletMoney(userId, amount)
       if (result.success) {
@@ -669,6 +724,10 @@ export default function UserPanel() {
         updateWalletBalance(result.balance)
         toast.success(`₹${amount} added to wallet`)
         loadWalletTransactions()
+        // If UPI is configured, show UPI info as a reminder for real-world payment
+        if (paymentSettings.upiPaymentEnabled && (paymentSettings.upiId || paymentSettings.paymentQrUrl)) {
+          setShowUpiPayment(true)
+        }
       } else {
         toast.error('Failed to add money')
       }
@@ -1401,6 +1460,11 @@ export default function UserPanel() {
                       <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
                       <span className="ml-2 text-xs text-muted-foreground">Finding nearby drivers...</span>
                     </div>
+                  ) : nearbyDrivers.filter(d => !vehicleType || d.vehicleType === vehicleType).length === 0 ? (
+                    <div className="py-4 text-center">
+                      <Truck className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+                      <p className="text-xs text-muted-foreground">No drivers available nearby. Try again later.</p>
+                    </div>
                   ) : (
                     <div className="space-y-2 max-h-48 overflow-y-auto">
                       {nearbyDrivers.filter(d => !vehicleType || d.vehicleType === vehicleType).slice(0, 4).map((driver) => (
@@ -1875,6 +1939,9 @@ export default function UserPanel() {
                   <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
                     <Plus className="h-4 w-4 text-emerald-600" />
                     Add Money
+                    {paymentSettings.upiPaymentEnabled && paymentSettings.upiId && (
+                      <Badge className="bg-emerald-100 text-emerald-700 text-[9px] ml-auto">UPI</Badge>
+                    )}
                   </h4>
                   <div className="flex gap-2 mb-3">
                     <div className="flex-1 relative">
@@ -1909,6 +1976,11 @@ export default function UserPanel() {
                       </Button>
                     ))}
                   </div>
+                  {paymentSettings.upiPaymentEnabled && paymentSettings.upiId && (
+                    <p className="text-[10px] text-muted-foreground mt-2 text-center">
+                      Payment via UPI: {paymentSettings.upiId}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1995,6 +2067,62 @@ export default function UserPanel() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* UPI Payment Info Dialog (informational — money already added) */}
+              <Dialog open={showUpiPayment} onOpenChange={setShowUpiPayment}>
+                <DialogContent className="max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                      Wallet Updated
+                    </DialogTitle>
+                    <DialogDescription>Money has been added to your wallet. You may complete the UPI payment below.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    {paymentSettings.paymentQrUrl && (
+                      <div className="p-3 bg-muted/50 rounded-lg text-center">
+                        <img src={paymentSettings.paymentQrUrl} alt="Payment QR Code" className="max-h-40 mx-auto rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                        <p className="text-[10px] text-muted-foreground mt-2">Scan QR code to pay</p>
+                      </div>
+                    )}
+                    {paymentSettings.upiId && (
+                      <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg">
+                        <p className="text-xs text-muted-foreground mb-1">Pay to UPI ID</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-mono font-bold text-emerald-700 dark:text-emerald-400">{paymentSettings.upiId}</p>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={() => {
+                              navigator.clipboard.writeText(paymentSettings.upiId)
+                              toast.success('UPI ID copied!')
+                            }}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {paymentSettings.paymentInstructions && (
+                      <div className="p-3 bg-muted/50 rounded-lg">
+                        <p className="text-xs font-semibold mb-1">Payment Instructions</p>
+                        <p className="text-xs text-muted-foreground">{paymentSettings.paymentInstructions}</p>
+                      </div>
+                    )}
+                    <Separator />
+                    <Button
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => {
+                        setShowUpiPayment(false)
+                        setUpiPaid(false)
+                      }}
+                    >
+                      Done
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </motion.div>
           )}
 
@@ -2140,12 +2268,12 @@ export default function UserPanel() {
               {/* About & Support */}
               <Card className="border-0 shadow-md">
                 <CardContent className="p-0">
-                  <button className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors rounded-t-lg border-b border-muted">
+                  <button onClick={() => setShowAboutDialog(true)} className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors rounded-t-lg border-b border-muted">
                     <Info className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm flex-1 text-left">About GramYatri</span>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </button>
-                  <button className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors rounded-b-lg">
+                  <button onClick={() => setShowHelpDialog(true)} className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors rounded-b-lg">
                     <MessageSquare className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm flex-1 text-left">Help & Support</span>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -2647,6 +2775,223 @@ export default function UserPanel() {
             <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleSaveProfile}>
               Save Changes
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===================== ABOUT GRAMYATRI DIALOG ===================== */}
+      <Dialog open={showAboutDialog} onOpenChange={setShowAboutDialog}>
+        <DialogContent className="max-w-sm flex flex-col max-h-[85vh]">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+              <Truck className="h-5 w-5" />
+              About GramYatri
+            </DialogTitle>
+            <DialogDescription>Village-friendly ride-hailing for Assam</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
+            {/* App Identity */}
+            <div className="text-center py-2">
+              <p className="text-3xl font-bold text-emerald-600">🛺 GramYatri</p>
+              <p className="text-xs text-muted-foreground mt-1">Version 2.0</p>
+              <p className="text-xs text-emerald-600 font-medium mt-2 italic">
+                &ldquo;Connecting villages with affordable, safe, and reliable transport&rdquo;
+              </p>
+            </div>
+
+            {/* Description */}
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              GramYatri is designed specifically for rural Assam — tempos, autos, and e-rickshaws for everyday travel. Whether you&#39;re heading to the market, the railway station, or the next village, GramYatri makes your journey simple, affordable, and safe.
+            </p>
+
+            {/* Key Features */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-foreground">Key Features</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { icon: IndianRupee, label: 'Affordable village fares', color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950' },
+                  { icon: Users, label: 'Shared tempo rides', color: 'text-orange-600 bg-orange-50 dark:bg-orange-950' },
+                  { icon: Navigation, label: 'Real-time GPS tracking', color: 'text-blue-600 bg-blue-50 dark:bg-blue-950' },
+                  { icon: Shield, label: 'SOS emergency button', color: 'text-red-600 bg-red-50 dark:bg-red-950' },
+                  { icon: CreditCard, label: 'Wallet payments & UPI', color: 'text-purple-600 bg-purple-50 dark:bg-purple-950' },
+                  { icon: Radio, label: 'Offline booking support', color: 'text-sky-600 bg-sky-50 dark:bg-sky-950' },
+                  { icon: Truck, label: 'Tempo, Auto, E-Rickshaw', color: 'text-amber-600 bg-amber-50 dark:bg-amber-950' },
+                ].map((feature) => (
+                  <div key={feature.label} className="flex items-center gap-2 p-2 rounded-lg bg-card border">
+                    <div className={`p-1.5 rounded-md ${feature.color}`}>
+                      <feature.icon className="h-3 w-3" />
+                    </div>
+                    <span className="text-xs font-medium leading-tight">{feature.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Our Story */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-foreground">Our Story</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Born in Assam, built for Bharat. GramYatri was created to solve the daily transport problem faced by villagers in rural India. No more waiting on highways — book a tempo, auto, or e-rickshaw right from your village.
+              </p>
+            </div>
+
+            {/* Safety */}
+            <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Shield className="h-4 w-4 text-emerald-600" />
+                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Your Safety Matters</p>
+              </div>
+              <ul className="space-y-1">
+                <li className="text-xs text-muted-foreground flex items-start gap-1.5">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                  All drivers are verified with valid documents
+                </li>
+                <li className="text-xs text-muted-foreground flex items-start gap-1.5">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                  SOS button for instant emergency help
+                </li>
+                <li className="text-xs text-muted-foreground flex items-start gap-1.5">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                  Live tracking shared with your family
+                </li>
+              </ul>
+            </div>
+
+            <Separator />
+
+            {/* Contact & Footer */}
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <MessageSquare className="h-3 w-3" />
+                support@gramyatri.com
+              </p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <ExternalLink className="h-3 w-3" />
+                gram-yatri.vercel.app
+              </p>
+            </div>
+            <p className="text-center text-xs text-muted-foreground pt-1">Made with ❤️ in Assam</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===================== HELP & SUPPORT DIALOG ===================== */}
+      <Dialog open={showHelpDialog} onOpenChange={setShowHelpDialog}>
+        <DialogContent className="max-w-sm flex flex-col max-h-[85vh]">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-emerald-600" />
+              Help & Support
+            </DialogTitle>
+            <DialogDescription>Frequently asked questions, emergency contacts & more</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
+            {/* FAQ Section */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-foreground">Frequently Asked Questions</p>
+              {[
+                {
+                  q: 'How to book a ride?',
+                  a: 'Enter your pickup and drop location, select vehicle type, and tap Search Ride. A nearby driver will be assigned to you.',
+                },
+                {
+                  q: 'How to add money to wallet?',
+                  a: 'Go to Wallet tab, enter the amount, and tap Add. You can pay via UPI to top up your wallet instantly.',
+                },
+                {
+                  q: 'How to use shared tempo?',
+                  a: 'Tap Shared Tempo on the home screen, select your route, and book a seat. Share the ride with other passengers heading the same way.',
+                },
+                {
+                  q: 'How to become a driver?',
+                  a: 'Register as a Driver, submit your vehicle and license details, and wait for admin approval. Once approved, you can start accepting rides.',
+                },
+                {
+                  q: 'Is my ride safe?',
+                  a: 'All drivers are verified with valid documents. Use the SOS button during a ride for emergency help. Your live tracking can be shared with family.',
+                },
+                {
+                  q: 'How to cancel a ride?',
+                  a: 'Tap cancel on your active ride. If you paid via wallet, the fare will be refunded to your wallet automatically.',
+                },
+                {
+                  q: 'What payment methods are accepted?',
+                  a: 'You can pay with Cash or Wallet. To top up your wallet, use UPI payment from the Wallet tab.',
+                },
+              ].map((faq) => (
+                <div key={faq.q} className="space-y-1 p-2.5 rounded-lg bg-card border">
+                  <p className="text-sm font-medium flex items-start gap-1.5">
+                    <Info className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                    {faq.q}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed pl-5">{faq.a}</p>
+                </div>
+              ))}
+            </div>
+
+            <Separator />
+
+            {/* Emergency Contacts */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                Emergency Contacts
+              </p>
+              {[
+                { label: 'Emergency', number: '112' },
+                { label: 'Women Helpline', number: '1091' },
+                { label: 'Police', number: '100' },
+                { label: 'Ambulance', number: '108' },
+              ].map((contact) => (
+                <a
+                  key={contact.number}
+                  href={`tel:${contact.number}`}
+                  className="flex items-center justify-between p-2.5 bg-red-50 dark:bg-red-950/30 rounded-lg hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-3.5 w-3.5 text-red-600" />
+                    <span className="text-sm font-medium text-red-700 dark:text-red-400">{contact.label}</span>
+                  </div>
+                  <span className="text-sm font-mono text-red-600">{contact.number}</span>
+                </a>
+              ))}
+            </div>
+
+            <Separator />
+
+            {/* Contact Support */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-foreground">Contact Support</p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <MessageSquare className="h-3 w-3" />
+                support@gramyatri.com
+              </p>
+              <a href="tel:+911800000000" className="block">
+                <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white" size="sm">
+                  <PhoneCall className="h-4 w-4 mr-2" />
+                  Call Support
+                </Button>
+              </a>
+              <Button
+                variant="outline"
+                className="w-full border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+                size="sm"
+                onClick={() => {
+                  setShowHelpDialog(false)
+                  toast.info('Report form coming soon! Email us at support@gramyatri.com')
+                }}
+              >
+                <AlertCircle className="h-4 w-4 mr-2" />
+                Report a Problem
+              </Button>
+            </div>
+
+            {/* App Version */}
+            <div className="text-center pt-1">
+              <p className="text-[10px] text-muted-foreground">GramYatri v2.0 • gram-yatri.vercel.app</p>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

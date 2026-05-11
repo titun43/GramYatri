@@ -126,6 +126,14 @@ export default function LoginScreen({ onAdminLogin }: { onAdminLogin?: () => voi
       setError('Please enter your name')
       return
     }
+    if (selectedRole === 'DRIVER' && !regVehicleNumber.trim()) {
+      setError('Please enter your vehicle number')
+      return
+    }
+    if (selectedRole === 'DRIVER' && !regLicense.trim()) {
+      setError('Please enter your license number')
+      return
+    }
     setLoading(true)
     setError('')
 
@@ -141,23 +149,9 @@ export default function LoginScreen({ onAdminLogin }: { onAdminLogin?: () => voi
         licenseNumber: selectedRole === 'DRIVER' ? regLicense : undefined,
       })
       login(user)
-    } catch {
-      // Fallback mock login
-      login({
-        id: `${selectedRole?.toLowerCase()}-${Date.now()}`,
-        name: name.trim(),
-        phone: fullPhone,
-        role: selectedRole!,
-        walletBalance: selectedRole === 'DRIVER' ? 0 : 500,
-        isVerified: true,
-        isOnline: false,
-        vehicleType: selectedRole === 'DRIVER' ? regVehicleType : undefined,
-        vehicleNumber: selectedRole === 'DRIVER' ? regVehicleNumber : undefined,
-        rating: selectedRole === 'DRIVER' ? 0 : undefined,
-        totalRides: selectedRole === 'DRIVER' ? 0 : undefined,
-        totalEarnings: selectedRole === 'DRIVER' ? 0 : undefined,
-        isRegistered: selectedRole === 'DRIVER' ? false : true,
-      })
+    } catch (err) {
+      console.error('Registration failed:', err)
+      setError('Registration failed. Please try again.')
     } finally {
       setLoading(false)
     }

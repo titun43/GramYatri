@@ -51,5 +51,10 @@ prompt
 
 server.log
 # Skills directory
-/skills/firebase-service-account.json
-upload/
+/skills/
+
+# Sensitive files
+firebase-service-account.json
+/upload/
+worklog.md
+agent-ctx/

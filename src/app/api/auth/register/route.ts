@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
           name,
           role: effectiveRole,
           isVerified: true,
-          wallet: { create: { balance: effectiveRole === 'USER' ? 500 : 0 } },
+          wallet: { create: { balance: 0 } },
           ...(effectiveRole === 'DRIVER' && vehicleType ? {
             driver: {
               create: {

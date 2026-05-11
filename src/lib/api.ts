@@ -249,11 +249,14 @@ export async function getWallet(userId: string): Promise<{ success: boolean; wal
 }
 
 export async function addWalletMoney(userId: string, amount: number): Promise<{ success: boolean; balance: number }> {
-  const res = await apiCall<{ success: boolean; wallet: { balance: number } }>('/wallet', {
+  const res = await apiCall<{ success: boolean; wallet?: { balance: number }; message?: string }>('/wallet', {
     method: 'POST',
     body: JSON.stringify({ userId, amount }),
   })
-  return { success: res.success, balance: res.wallet?.balance || 0 }
+  if (res.success && res.wallet) {
+    return { success: true, balance: res.wallet.balance }
+  }
+  return { success: false, balance: 0 }
 }
 
 export async function getWalletTransactions(userId: string): Promise<{ success: boolean; transactions: Array<Record<string, unknown>> }> {
@@ -396,25 +399,34 @@ export async function broadcastNotification(data: { title: string; message: stri
 }
 
 export async function getFareConfig(): Promise<Record<string, string>> {
-  const res = await apiCall<{ success: boolean; settings: Array<{ key: string; value: string }> }>('/settings')
-  const config: Record<string, string> = {}
-  if (res.settings) {
-    for (const s of res.settings) {
-      // Map snake_case DB keys to camelCase frontend keys
-      const keyMap: Record<string, string> = {
-        'commission_percentage': 'commission',
-        'tempo_base_fare': 'tempoBaseFare',
-        'tempo_per_km': 'tempoPerKm',
-        'auto_base_fare': 'autoBaseFare',
-        'auto_per_km': 'autoPerKm',
-        'erickshaw_base_fare': 'eRickshawBaseFare',
-        'erickshaw_per_km': 'eRickshawPerKm',
+  try {
+    const res = await apiCall<{ success: boolean; settings: Record<string, string> }>('/admin/settings')
+    const config: Record<string, string> = {}
+    if (res.success && res.settings) {
+      const entries = Array.isArray(res.settings)
+        ? res.settings
+        : Object.entries(res.settings).map(([key, value]) => ({ key, value: String(value) }))
+      for (const s of entries) {
+        const sKey = (s as { key: string; value: string }).key
+        const sValue = (s as { key: string; value: string }).value
+        // Map snake_case DB keys to camelCase frontend keys
+        const keyMap: Record<string, string> = {
+          'commission_percentage': 'commission',
+          'tempo_base_fare': 'tempoBaseFare',
+          'tempo_per_km': 'tempoPerKm',
+          'auto_base_fare': 'autoBaseFare',
+          'auto_per_km': 'autoPerKm',
+          'erickshaw_base_fare': 'eRickshawBaseFare',
+          'erickshaw_per_km': 'eRickshawPerKm',
+        }
+        const mappedKey = keyMap[sKey] || sKey
+        config[mappedKey] = sValue
       }
-      const mappedKey = keyMap[s.key] || s.key
-      config[mappedKey] = s.value
     }
+    return config
+  } catch {
+    return {}
   }
-  return config
 }
 
 export async function updateFareConfig(data: Record<string, string>): Promise<{ success: boolean }> {
@@ -428,14 +440,14 @@ export async function updateFareConfig(data: Record<string, string>): Promise<{ 
     'eRickshawBaseFare': 'erickshaw_base_fare',
     'eRickshawPerKm': 'erickshaw_per_km',
   }
-  const updates = Object.entries(data).map(([key, value]) =>
-    apiCall('/settings', {
-      method: 'PATCH',
-      body: JSON.stringify({ key: keyMap[key] || key, value }),
-    })
-  )
-  await Promise.all(updates)
-  return { success: true }
+  const settings = Object.entries(data).map(([key, value]) => ({
+    key: keyMap[key] || key,
+    value,
+  }))
+  return apiCall('/admin/settings', {
+    method: 'PATCH',
+    body: JSON.stringify({ settings }),
+  })
 }
 
 // Fare calculation helper (client-side)

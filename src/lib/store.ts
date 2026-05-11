@@ -95,6 +95,7 @@ interface AppState {
   addNotification: (notification: Notification) => void
   markNotificationRead: (id: string) => void
   updateWalletBalance: (balance: number) => void
+  updateCurrentUser: (updates: Partial<User>) => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -172,6 +173,11 @@ export const useAppStore = create<AppState>()(
 
       updateWalletBalance: (balance) => set((state) => ({
         currentUser: state.currentUser ? { ...state.currentUser, walletBalance: balance } : null,
+      })),
+
+      updateCurrentUser: (updates) => set((state) => ({
+        currentUser: state.currentUser ? { ...state.currentUser, ...updates } : null,
+        currentRole: updates.role ? (updates.role as Role) : state.currentRole,
       })),
     }),
     {

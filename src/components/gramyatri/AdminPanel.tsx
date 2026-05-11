@@ -30,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useAppStore } from '@/lib/store'
+import { toast } from 'sonner'
 import {
   getAdminStats, getAdminUsers, approveDriver, rejectDriver,
   blockUser, unblockUser, getRides, updateRide, updateCommission,
@@ -46,7 +47,7 @@ import {
 
 // ─── Types ──────────────────────────────────────────────
 
-type AdminTab = 'dashboard' | 'drivers' | 'rides' | 'wallet' | 'reports' | 'notifications' | 'settings'
+type AdminTab = 'dashboard' | 'drivers' | 'rides' | 'users' | 'wallet' | 'reports' | 'notifications' | 'settings'
 
 interface PendingDriver {
   id: string; userId: string; name: string; phone: string;
@@ -71,6 +72,7 @@ interface UserItem {
   id: string; name: string; phone: string; role: string;
   walletBalance: number; isVerified: boolean; isOnline: boolean;
   isBlocked: boolean; totalRides: number; rating: number;
+  driverStatus?: string; // PENDING, APPROVED, SUSPENDED, or undefined if not a driver
 }
 
 interface WalletItem {
@@ -206,12 +208,25 @@ function normalizeRide(r: Record<string, unknown>): RideItem {
 }
 
 function normalizeUser(u: Record<string, unknown>): UserItem {
+  const wallet = (u.wallet as Record<string, unknown>) || {}
+  const driver = (u.driver as Record<string, unknown>) || {}
+  // Determine driver status from nested driver object
+  let driverStatus: string | undefined
+  if (u.role === 'DRIVER' || Object.keys(driver).length > 0) {
+    if (driver.isSuspended) driverStatus = 'SUSPENDED'
+    else if (driver.isApproved) driverStatus = 'APPROVED'
+    else driverStatus = 'PENDING'
+  }
   return {
     id: String(u.id || ''), name: String(u.name || 'Unknown'),
     phone: String(u.phone || ''), role: String(u.role || 'USER'),
-    walletBalance: Number(u.walletBalance || 0), isVerified: !!u.isVerified,
-    isOnline: !!u.isOnline, isBlocked: !!u.isBlocked,
-    totalRides: Number(u.totalRides || 0), rating: Number(u.rating || 0),
+    walletBalance: Number(wallet.balance ?? u.walletBalance ?? 0),
+    isVerified: !!u.isVerified,
+    isOnline: !!(driver.isOnline ?? u.isOnline),
+    isBlocked: !!u.isBlocked,
+    totalRides: Number(driver.totalRides ?? u.totalRides ?? 0),
+    rating: Number(driver.rating ?? u.rating ?? 0),
+    driverStatus,
   }
 }
 
@@ -284,7 +299,12 @@ function UpiSettingsInline({ upiId, qrUrl, instructions, enabled, onSave }: {
         disabled={saving}
         onClick={async () => {
           setSaving(true)
-          try { await onSave({ upiId: localUpiId, qrUrl: localQrUrl, instructions: localInstructions, enabled: localEnabled }) }
+          try {
+            await onSave({ upiId: localUpiId, qrUrl: localQrUrl, instructions: localInstructions, enabled: localEnabled })
+            toast.success('Payment settings saved!')
+          } catch {
+            toast.error('Failed to save payment settings')
+          }
           finally { setSaving(false) }
         }}
       >
@@ -599,6 +619,7 @@ export default function AdminPanel() {
   useEffect(() => {
     if (activeTab === 'drivers') loadDrivers()
     else if (activeTab === 'rides') loadRides()
+    else if (activeTab === 'users') loadUsers()
     else if (activeTab === 'wallet') { loadWallets(); loadMockWithdrawals() }
     else if (activeTab === 'reports') loadReports()
     else if (activeTab === 'notifications') { loadUsers(); loadDisputes() }
@@ -725,10 +746,18 @@ export default function AdminPanel() {
 
   const handleUpdateSetting = async (key: string, value: string) => {
     try {
-      await updateAdminSettings([{ key, value }])
-      setAppSettings(prev => prev.map(s => s.key === key ? { ...s, value } : s))
-      setEditingSetting(null)
-    } catch (err) { console.error('Failed to update setting:', err) }
+      const res = await updateAdminSettings([{ key, value }])
+      if (res.success) {
+        await loadSettings()
+        setEditingSetting(null)
+        toast.success('Setting updated')
+      } else {
+        toast.error('Failed to update setting')
+      }
+    } catch (err) {
+      console.error('Failed to update setting:', err)
+      toast.error('Failed to update setting')
+    }
   }
 
   const handleLoadTransactions = async (wallet: WalletItem) => {
@@ -870,6 +899,7 @@ export default function AdminPanel() {
     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'drivers', label: 'Drivers', icon: Car },
     { key: 'rides', label: 'Rides', icon: Navigation },
+    { key: 'users', label: 'Users', icon: UsersIcon },
     { key: 'wallet', label: 'Wallet', icon: Wallet },
     { key: 'reports', label: 'Reports', icon: BarChart3 },
     { key: 'notifications', label: 'Alerts', icon: Bell },
@@ -1457,6 +1487,93 @@ export default function AdminPanel() {
             </motion.div>
           )}
 
+          {/* ═══════════════════ USERS TAB ═══════════════════ */}
+          {activeTab === 'users' && (
+            <motion.div key="users" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="p-4 space-y-4">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Search by name or phone..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} className="pl-9" />
+              </div>
+
+              {/* Summary */}
+              <div className="grid grid-cols-3 gap-3">
+                <Card className="border-0 shadow-md"><CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1"><UsersIcon className="h-4 w-4 text-emerald-600" /><span className="text-xs text-muted-foreground">Total Users</span></div>
+                  <div className="text-2xl font-bold text-emerald-600">{users.length}</div>
+                </CardContent></Card>
+                <Card className="border-0 shadow-md"><CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1"><Shield className="h-4 w-4 text-blue-600" /><span className="text-xs text-muted-foreground">Verified</span></div>
+                  <div className="text-2xl font-bold text-blue-600">{users.filter(u => u.isVerified).length}</div>
+                </CardContent></Card>
+                <Card className="border-0 shadow-md"><CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1"><Ban className="h-4 w-4 text-red-600" /><span className="text-xs text-muted-foreground">Blocked</span></div>
+                  <div className="text-2xl font-bold text-red-600">{users.filter(u => u.isBlocked).length}</div>
+                </CardContent></Card>
+              </div>
+
+              {/* Users List */}
+              {loadingUsers ? (
+                <Card className="border-0 shadow-md"><CardContent className="p-12 text-center"><Loader2 className="h-8 w-8 text-emerald-600 mx-auto mb-3 animate-spin" /><p className="text-sm text-muted-foreground">Loading users...</p></CardContent></Card>
+              ) : filteredUsers.length === 0 ? (
+                <Card className="border-0 shadow-md"><CardContent className="p-12 text-center">
+                  <UsersIcon className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">{userSearch ? 'No users match your search' : 'No users found'}</p>
+                </CardContent></Card>
+              ) : (
+                <div className="space-y-3">
+                  {filteredUsers.map((u) => (
+                    <Card key={u.id} className={`border-0 shadow-md ${u.isBlocked ? 'opacity-60 bg-red-50 dark:bg-red-950/20' : ''}`}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-10 w-10">
+                              <AvatarFallback className={u.role === 'DRIVER' ? 'bg-orange-100 text-orange-700' : u.role === 'ADMIN' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-700'}>
+                                {u.name[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-medium">{u.name}</p>
+                                <Badge className={`text-[10px] ${u.role === 'DRIVER' ? 'bg-orange-100 text-orange-700' : u.role === 'ADMIN' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                  {u.role}
+                                </Badge>
+                                {u.isBlocked && <Badge className="bg-red-100 text-red-700 text-[10px]"><Ban className="h-3 w-3 mr-0.5" />Blocked</Badge>}
+                                {u.isVerified && <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />}
+                                {u.driverStatus && (
+                                  <Badge className={`text-[10px] ${u.driverStatus === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : u.driverStatus === 'SUSPENDED' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                    <Car className="h-3 w-3 mr-0.5" />{u.driverStatus}
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground">{u.phone}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-medium">₹{u.walletBalance.toLocaleString()}</p>
+                            <div className="flex items-center gap-1 mt-1 justify-end">
+                              {u.totalRides > 0 && <span className="text-xs text-muted-foreground">{u.totalRides} rides</span>}
+                              {u.rating > 0 && <span className="text-xs text-yellow-600">★ {u.rating.toFixed(1)}</span>}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={u.isBlocked ? 'outline' : 'destructive'}
+                              className="h-7 text-xs mt-1"
+                              onClick={() => handleBlockUser(u.id, u.isBlocked)}
+                            >
+                              {u.isBlocked ? <CheckCircle className="h-3 w-3 mr-1" /> : <Ban className="h-3 w-3 mr-1" />}
+                              {u.isBlocked ? 'Unblock' : 'Block'}
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+
           {/* ═══════════════════ ENHANCED WALLET TAB ═══════════════════ */}
           {activeTab === 'wallet' && (
             <motion.div key="wallet" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="p-4 space-y-4">
@@ -2012,13 +2129,16 @@ export default function AdminPanel() {
                       instructions={instructionsSetting?.value || ''}
                       enabled={enabledSetting?.value === 'true'}
                       onSave={async (data) => {
-                        await updateAdminSettings([
+                        const res = await updateAdminSettings([
                           { key: 'upi_id', value: data.upiId },
                           { key: 'payment_qr_url', value: data.qrUrl },
                           { key: 'payment_instructions', value: data.instructions },
                           { key: 'upi_payment_enabled', value: data.enabled ? 'true' : 'false' },
                         ])
-                        loadSettings()
+                        if (!res.success) {
+                          throw new Error('Failed to save payment settings')
+                        }
+                        await loadSettings()
                       }}
                     />
                   })()}
