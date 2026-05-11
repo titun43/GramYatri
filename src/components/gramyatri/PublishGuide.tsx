@@ -42,18 +42,64 @@ const STEPS: GuideStep[] = [
         highlight: true,
       },
       {
+        text: 'Delete all old files from your project folder first!',
+        textLocal: "প্ৰথমে আপোনাৰ পুৰণি প্ৰজেক্ট ফোল্ডাৰৰ সকলো ফাইল মচক!",
+        warning: true,
+      },
+      {
         text: 'Extract the ZIP file on your computer',
         textLocal: "ZIP ফাইল আপোনাৰ কম্পিউটাৰত extract কৰক",
       },
       {
         text: 'Open Terminal/Command Prompt in the extracted folder',
         textLocal: "Extract কৰা ফোল্ডাৰত Terminal খুলক",
-        code: 'cd GramYatri',
+        code: 'cd GRAMYATRI',
       },
     ],
   },
   {
     id: 2,
+    title: 'Setup Neon Database (FREE!)',
+    titleLocal: "Neon ডাটাবেছ চেটআপ কৰক (ফ্ৰী!)",
+    icon: Database,
+    subSteps: [
+      {
+        text: 'Go to Neon.tech and Sign Up (use GitHub login - fastest)',
+        textLocal: "Neon.tech লৈ যাওক আৰু GitHub দি Sign Up কৰক",
+        link: 'https://neon.tech',
+        action: 'Open Neon',
+        highlight: true,
+      },
+      {
+        text: 'Click "Create Project" → Name: GramYatri → Region: Asia (closest) → Create',
+        textLocal: '"Create Project" ক্লিক → নাম: GramYatri → Asia region → Create',
+        highlight: true,
+      },
+      {
+        text: 'After project is created, click "Dashboard" → Copy the Connection String',
+        textLocal: "প্ৰজেক্ট তৈয়াৰ হ'লে Dashboard ৰ পৰা Connection String কপি কৰক",
+        highlight: true,
+        warning: true,
+      },
+      {
+        text: 'The connection string looks like this:',
+        textLocal: "Connection string এনেকৈ দেখা যাব:",
+        code: 'postgresql://username:password@ep-xxx.region.aws.neon.tech/gramyatri?sslmode=require',
+      },
+      {
+        text: 'IMPORTANT: Add ?sslmode=require at the end if not present',
+        textLocal: "গুৰুত্বপূৰ্ণ: শেষত ?sslmode=require যোগ কৰক যদি নাই",
+        warning: true,
+      },
+      {
+        text: 'Save this connection string — you will need it for Vercel env vars',
+        textLocal: "এই connection string সংৰক্ষণ কৰক — Vercel env vars ত লাগিব",
+        highlight: true,
+      },
+    ],
+  },
+  {
+    id: 3,
     title: 'Push Code to GitHub',
     titleLocal: "ক'ড GitHub ত আপলোড কৰক",
     icon: Globe,
@@ -88,19 +134,13 @@ const STEPS: GuideStep[] = [
         warning: true,
       },
       {
-        text: 'Run the push script (easiest method)',
-        textLocal: "Push স্ক্ৰিপ্ট চলাওক (আটাইতকৈ সহজ)",
-        code: 'bash push-to-github.sh',
-        highlight: true,
+        text: 'Run these commands in the project folder:',
+        textLocal: "প্ৰজেক্ট ফোল্ডাৰত এই কমাণ্ডবোৰ চলাওক:",
       },
       {
-        text: 'OR run these commands manually:',
-        textLocal: "বা এই কমাণ্ডবোৰ manually চলাওক:",
-      },
-      {
-        text: 'Initialize git',
+        text: 'Initialize git (if fresh folder)',
         textLocal: "Git আৰম্ভ কৰক",
-        code: 'git init\n git branch -M main',
+        code: 'git init\ngit branch -M main',
       },
       {
         text: 'Add all files',
@@ -113,24 +153,24 @@ const STEPS: GuideStep[] = [
         code: 'git commit -m "GramYatri Ride App"',
       },
       {
-        text: 'Connect to your GitHub repo',
+        text: 'Connect to your GitHub repo (skip if already connected)',
         textLocal: "GitHub ৰেপ'জিটৰিৰ সৈতে সংযোগ কৰক",
         code: 'git remote add origin https://github.com/titun43/GramYatri.git',
       },
       {
         text: 'Push to GitHub (use token as password when asked)',
         textLocal: "GitHub ত push কৰক (পাছৱৰ্ড মাগিলে Token দিয়ক)",
-        code: 'git push -u origin main',
+        code: 'git push -u origin main --force',
         highlight: true,
         warning: true,
       },
     ],
   },
   {
-    id: 3,
+    id: 4,
     title: 'Setup Firebase Project',
     titleLocal: "Firebase প্ৰজেক্ট চেটআপ কৰক",
-    icon: Database,
+    icon: Server,
     subSteps: [
       {
         text: 'Go to Firebase Console',
@@ -169,7 +209,7 @@ const STEPS: GuideStep[] = [
     ],
   },
   {
-    id: 4,
+    id: 5,
     title: 'Deploy to Vercel (FREE!)',
     titleLocal: "Vercel ত ডিপ্লয় কৰক (ফ্ৰী!)",
     icon: Rocket,
@@ -197,8 +237,8 @@ const STEPS: GuideStep[] = [
         warning: true,
       },
       {
-        text: 'Add all 12 environment variables (see list below)',
-        textLocal: "সকলো 12টা environment variable যোগ কৰক (তলৰ তালিকা চাওক)",
+        text: 'Add all 13 environment variables (see list below)',
+        textLocal: "সকলো 13টা environment variable যোগ কৰক (তলৰ তালিকা চাওক)",
         highlight: true,
       },
       {
@@ -206,14 +246,14 @@ const STEPS: GuideStep[] = [
         textLocal: '"Deploy" ক্লিক কৰি 2-3 মিনিট অপেক্ষা কৰক',
       },
       {
-        text: 'Your app is LIVE! You get a URL like: gramyatri-xxx.vercel.app 🎉',
+        text: 'Your app is LIVE! You get a URL like: gram-yatri.vercel.app 🎉',
         textLocal: "আপোনাৰ এপ লাইভ! URL পাব 🎉",
         highlight: true,
       },
     ],
   },
   {
-    id: 5,
+    id: 6,
     title: 'Add Environment Variables',
     titleLocal: "Environment Variables যোগ কৰক",
     icon: FileCode,
@@ -224,9 +264,11 @@ const STEPS: GuideStep[] = [
         highlight: true,
       },
       {
-        text: 'DATABASE_URL',
-        textLocal: "ডাটাবেছ URL",
-        code: 'Key: DATABASE_URL\nValue: file:./dev.db',
+        text: 'DATABASE_URL — Paste the Neon connection string you copied in Step 2',
+        textLocal: "DATABASE_URL — Step 2 ত কপি কৰা Neon connection string পেষ্ট কৰক",
+        code: 'Key: DATABASE_URL\nValue: postgresql://username:password@ep-xxx.neon.tech/gramyatri?sslmode=require',
+        highlight: true,
+        warning: true,
       },
       {
         text: 'Firebase Client Keys (6 variables) - from Firebase Web App config',
@@ -258,7 +300,7 @@ const STEPS: GuideStep[] = [
     ],
   },
   {
-    id: 6,
+    id: 7,
     title: 'Install as Mobile App',
     titleLocal: "মʼবাইল এপ হিচাপে ইনষ্টল কৰক",
     icon: Smartphone,
@@ -283,7 +325,7 @@ const STEPS: GuideStep[] = [
     ],
   },
   {
-    id: 7,
+    id: 8,
     title: 'Google Play Store (Optional)',
     titleLocal: "Google Play Store (ঐচ্ছিক)",
     icon: Shield,
@@ -318,7 +360,7 @@ const STEPS: GuideStep[] = [
 ]
 
 const ENV_VARS = [
-  { key: 'DATABASE_URL', value: 'file:./dev.db', from: 'Fixed value', required: true },
+  { key: 'DATABASE_URL', value: 'postgresql://user:pass@ep-xxx.neon.tech/gramyatri?sslmode=require', from: 'Neon Dashboard → Connection String', required: true },
   { key: 'NEXT_PUBLIC_FIREBASE_API_KEY', value: 'AIzaSy...', from: 'Firebase Config → apiKey', required: true },
   { key: 'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN', value: 'xxx.firebaseapp.com', from: 'Firebase Config → authDomain', required: true },
   { key: 'NEXT_PUBLIC_FIREBASE_PROJECT_ID', value: 'your-project', from: 'Firebase Config → projectId', required: true },
@@ -392,6 +434,21 @@ export default function PublishGuide() {
 
       <div className="max-w-2xl mx-auto px-4 py-5 space-y-4 pb-10">
 
+        {/* Important Notice */}
+        <Card className="border-2 border-red-200 bg-red-50 shadow-md">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <h3 className="font-bold text-sm text-red-800">গুৰুত্বপূৰ্ণ সলনি!</h3>
+            </div>
+            <p className="text-xs text-red-700">
+              ডাটাবেছ SQLite ৰ পৰা <strong>PostgreSQL (Neon)</strong> লৈ সলনি কৰা হৈছে।
+              SQLite Vercel ত কাম নকৰে — সেইবাবে <strong>Neon (ফ্ৰী)</strong> ব্যৱহাৰ কৰিব লাগিব।
+              তলৰ Step 2 ত Neon চেটআপ কৰক — 2 মিনিটতে হৈ যাব!
+            </p>
+          </CardContent>
+        </Card>
+
         {/* Current Status Banner */}
         <Card className="border-2 border-orange-200 bg-orange-50 shadow-md">
           <CardContent className="p-4">
@@ -405,7 +462,7 @@ export default function PublishGuide() {
             </div>
             <div className="flex items-center gap-2 mt-1">
               <span className="h-4 w-4 flex items-center justify-center text-xs">⏭️</span>
-              <span className="text-sm text-orange-800 font-medium">এতিয়া ক'ড GitHub ত push কৰক → Firebase চেটআপ → Vercel ডিপ্লয়</span>
+              <span className="text-sm text-orange-800 font-medium">এতিয়া Neon ডাটাবেছ চেটআপ → ক'ড push → Vercel ডিপ্লয়</span>
             </div>
           </CardContent>
         </Card>
@@ -613,16 +670,21 @@ export default function PublishGuide() {
               <Sparkles className="h-4 w-4 text-orange-500" />
               খৰচৰ হিচাপ
             </h3>
-            <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="grid grid-cols-3 gap-2 text-xs">
               <div className="bg-white/60 rounded-lg p-2 text-center">
                 <p className="font-bold text-emerald-700">₹0/মাহ</p>
-                <p className="text-[10px] text-gray-500">Vercel + Firebase</p>
+                <p className="text-[10px] text-gray-500">Vercel</p>
               </div>
               <div className="bg-white/60 rounded-lg p-2 text-center">
-                <p className="font-bold text-orange-700">₹2,100 (একবাৰ)</p>
-                <p className="text-[10px] text-gray-500">Google Play Account</p>
+                <p className="font-bold text-emerald-700">₹0/মাহ</p>
+                <p className="text-[10px] text-gray-500">Neon DB</p>
+              </div>
+              <div className="bg-white/60 rounded-lg p-2 text-center">
+                <p className="font-bold text-emerald-700">₹0/মাহ</p>
+                <p className="text-[10px] text-gray-500">Firebase</p>
               </div>
             </div>
+            <p className="text-[10px] text-gray-500 mt-2 text-center">সকলো ফ্ৰী! Google Play তালিকাকৰণ বাদে ($25 একবাৰ)</p>
           </CardContent>
         </Card>
 
@@ -635,7 +697,7 @@ export default function PublishGuide() {
               Vercel URL সকলোকে শ্বেয়াৰ কৰক। মʼবাইলত Chrome ত খুলি "Add to Home Screen" ক্লিক কৰিলে এপ ইনষ্টল হʼব!
             </p>
             <div className="bg-white/15 rounded-lg p-2">
-              <p className="font-mono text-sm font-bold">https://gramyatri-xxx.vercel.app</p>
+              <p className="font-mono text-sm font-bold">https://gram-yatri.vercel.app</p>
             </div>
           </CardContent>
         </Card>
