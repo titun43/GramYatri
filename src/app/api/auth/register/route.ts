@@ -112,8 +112,9 @@ export async function POST(req: NextRequest) {
       })
     } catch (dbError) {
       console.error('Register DB error:', dbError)
+      const errMsg = dbError instanceof Error ? dbError.message : String(dbError)
       return NextResponse.json(
-        { success: false, message: 'Database error. Please try again.' },
+        { success: false, message: 'Database error. Please try again.', detail: errMsg },
         { status: 500 }
       )
     }
