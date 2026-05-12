@@ -121,12 +121,53 @@ interface NearbyDriverInfo {
   lng: number
 }
 
-// Location suggestions
+// Location suggestions — Lanka, Hojai & surrounding areas (Assam)
 const LOCATION_SUGGESTIONS = [
-  'Lanka Market', 'Hojai Bus Stand', 'Nagaon Town', 'Guwahati Paltan Bazar',
-  'Diphu Railway Station', 'Lanka Railway Station', 'Nagaon Medical College',
-  'Hojai Court', 'Guwahati Airport', 'Kaziranga National Park',
+  // Lanka town internal locations
+  'Lanka Bazar', 'Lanka Main Bazar', 'Lanka Railway Station', 'Lanka Bus Stand',
+  'Lanka Public School', 'Lanka College', 'Lanka Hospital', 'Lanka Police Station',
+  'Lanka Court', 'Lanka Town Hall', 'Lanka Post Office', 'Lanka ATM',
+  'Lanka Petrol Pump', 'Lanka Mosque', 'Lanka Mandir', 'Lanka PWD Office',
+  // Lanka area sub-localities
+  'Azarbari', 'Jaysagar Lanka', 'Nowpara Lanka', 'Pub Lanka', 'Paschim Lanka',
+  'Raha Lanka Road', 'Lanka Tiniali', 'Lanka Chariali', 'Lanka Gaon',
+  'Lanka Ward No 1', 'Lanka Ward No 2', 'Lanka Ward No 3',
+  // Hojai district
+  'Hojai Bus Stand', 'Hojai Railway Station', 'Hojai Town', 'Hojai Bazar',
+  'Hojai Court', 'Hojai Hospital', 'Hojai Police Station', 'Hojai College',
+  'Hojai Tiniali', 'Hojai Chariali', 'Doboka', 'Sankardev Nagar Hojai',
+  // Nearby important stops
+  'Nagaon Town', 'Nagaon Railway Station', 'Nagaon Bus Stand',
+  'Nagaon Medical College', 'Lumding Junction', 'Lumding Railway Station',
+  'Chaparmukh', 'Raha', 'Jagiroad', 'Morigaon',
+  // Major cities
+  'Guwahati Paltan Bazar', 'Guwahati Railway Station', 'Guwahati Airport',
+  'Guwahati ISBT', 'Dispur', 'Silchar', 'Diphu', 'Diphu Railway Station',
+  'Kaziranga National Park', 'Jorhat', 'Tezpur',
 ]
+
+// Local area known coordinates for precise geocoding (Lanka area)
+const LOCAL_KNOWN_COORDS: Record<string, { lat: number; lng: number }> = {
+  'lanka bazar': { lat: 26.0194, lng: 92.9864 },
+  'lanka main bazar': { lat: 26.0194, lng: 92.9864 },
+  'lanka railway station': { lat: 26.0186, lng: 92.9871 },
+  'lanka bus stand': { lat: 26.0198, lng: 92.9860 },
+  'lanka public school': { lat: 26.0201, lng: 92.9855 },
+  'lanka hospital': { lat: 26.0205, lng: 92.9870 },
+  'lanka police station': { lat: 26.0190, lng: 92.9862 },
+  'lanka post office': { lat: 26.0196, lng: 92.9858 },
+  'azarbari': { lat: 26.0220, lng: 92.9890 },
+  'jaysagar lanka': { lat: 26.0175, lng: 92.9845 },
+  'nowpara lanka': { lat: 26.0210, lng: 92.9880 },
+  'lanka tiniali': { lat: 26.0188, lng: 92.9852 },
+  'lanka chariali': { lat: 26.0192, lng: 92.9857 },
+  'hojai bus stand': { lat: 26.0028, lng: 92.8560 },
+  'hojai railway station': { lat: 26.0020, lng: 92.8552 },
+  'hojai town': { lat: 26.0025, lng: 92.8558 },
+  'hojai bazar': { lat: 26.0030, lng: 92.8562 },
+  'lumding railway station': { lat: 25.7567, lng: 93.1746 },
+  'lumding junction': { lat: 25.7567, lng: 93.1746 },
+}
 
 // Bilingual translations — English & Assamese
 type Lang = 'en' | 'as'
@@ -405,10 +446,21 @@ export default function UserPanel() {
 
   // Geocode a location name to coordinates using Nominatim
   const geocodeLocation = useCallback(async (locationName: string): Promise<{ lat: number; lng: number } | null> => {
+    const cleanName = locationName.replace('(GPS)', '').trim()
+
+    // 1. Check local known coordinates first (instant, no network needed)
+    const localKey = cleanName.toLowerCase()
+    if (LOCAL_KNOWN_COORDS[localKey]) {
+      return LOCAL_KNOWN_COORDS[localKey]
+    }
+
     try {
-      // First try with Assam, India bounding box for better results
+      // 2. Try with STRICT Assam bounding box + countrycodes=IN to avoid wrong countries
+      // viewbox: lon_min,lat_max,lon_max,lat_min (West Assam to East Assam)
+      // bounded=1 forces results to stay within viewbox
+      const assamQuery = `${cleanName}, Assam`
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&viewbox=89.5,26.5,96.0,24.5&bounded=0&limit=1&accept-language=as,en`,
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(assamQuery)}&viewbox=89.5,27.5,96.5,24.0&bounded=1&limit=5&countrycodes=in&accept-language=as,en`,
         { headers: { 'User-Agent': 'GramYatri/2.0' } }
       )
       if (res.ok) {
@@ -417,15 +469,23 @@ export default function UserPanel() {
           return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
         }
       }
-      // Fallback without bounding box
+
+      // 3. Broader India search (still restricted to India)
       const res2 = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&limit=1&accept-language=as,en`,
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanName + ', Assam, India')}&limit=3&countrycodes=in&accept-language=as,en`,
         { headers: { 'User-Agent': 'GramYatri/2.0' } }
       )
       if (res2.ok) {
         const data2 = await res2.json()
+        // Pick result closest to Lanka/Hojai area (lat~26, lng~92.9)
         if (data2.length > 0) {
-          return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) }
+          const centerLat = 26.01, centerLng = 92.93
+          const best = data2.reduce((prev: { lat: string; lon: string }, curr: { lat: string; lon: string }) => {
+            const dPrev = Math.abs(parseFloat(prev.lat) - centerLat) + Math.abs(parseFloat(prev.lon) - centerLng)
+            const dCurr = Math.abs(parseFloat(curr.lat) - centerLat) + Math.abs(parseFloat(curr.lon) - centerLng)
+            return dCurr < dPrev ? curr : prev
+          })
+          return { lat: parseFloat(best.lat), lng: parseFloat(best.lon) }
         }
       }
     } catch {
@@ -759,28 +819,45 @@ export default function UserPanel() {
         setUserLng(lng)
 
         try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1&accept-language=as,en`,
-            { headers: { 'User-Agent': 'GramYatri/2.0' } }
-          )
-          if (!res.ok) return
-          const data = await res.json()
-          if (data.error) return
+          // zoom=18 = building level, zoom=16 = street, zoom=14 = village
+          // Try highest zoom first for most precise name
+          const tryReverse = async (zoom: number): Promise<string> => {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&namedetails=1&accept-language=as,en`,
+              { headers: { 'User-Agent': 'GramYatri/2.0' } }
+            )
+            if (!res.ok) return ''
+            const data = await res.json()
+            if (data.error) return ''
+            const addr = data.address || {}
 
-          const addr = data.address || {}
-          const parts: string[] = []
-          const village = addr.village || addr.hamlet || addr.town || addr.neighbourhood || addr.suburb
-          if (village) parts.push(village)
-          const road = addr.road || addr.pedestrian
-          if (road && !parts.includes(road)) parts.push(road)
-          const city = addr.city || addr.county
-          if (city && !parts.includes(city)) parts.push(city)
+            const parts: string[] = []
+            // Most specific first: neighbourhood/quarter/suburb
+            const micro = addr.neighbourhood || addr.quarter || addr.residential || addr.hamlet
+            if (micro) parts.push(micro)
+            // Village or suburb
+            const village = addr.village || addr.suburb || addr.town
+            if (village && !parts.includes(village)) parts.push(village)
+            // Road if no micro detail
+            if (parts.length === 0) {
+              const road = addr.road || addr.pedestrian
+              if (road) parts.push(road)
+            }
+            // City/district
+            const city = addr.city || addr.county || addr.state_district
+            if (city && !parts.includes(city)) parts.push(city)
 
-          const locationName = parts.length > 0
-            ? parts.slice(0, 3).join(', ') + ' (GPS)'
-            : data.display_name
-              ? data.display_name.split(',').slice(0, 2).map((s: string) => s.trim()).join(', ') + ' (GPS)'
-              : `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
+            return parts.length > 0
+              ? parts.slice(0, 2).join(', ') + ' (GPS)'
+              : ''
+          }
+
+          let locationName = await tryReverse(18)
+          if (!locationName || locationName === ' (GPS)') locationName = await tryReverse(16)
+          if (!locationName || locationName === ' (GPS)') locationName = await tryReverse(14)
+          if (!locationName) {
+            locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
+          }
 
           // Only set pickup if it's currently empty
           setPickup(prev => prev || locationName)
@@ -820,6 +897,10 @@ export default function UserPanel() {
       const filtered = LOCATION_SUGGESTIONS.filter(s => s.toLowerCase().includes(val.toLowerCase()))
       setPickupSuggestions(filtered)
       setShowPickupSuggestions(filtered.length > 0)
+      // Also fetch live Nominatim suggestions for Assam (debounced via state update)
+      if (val.length >= 3) {
+        fetchNominatimSuggestions(val, 'pickup')
+      }
     } else {
       setShowPickupSuggestions(false)
     }
@@ -832,10 +913,57 @@ export default function UserPanel() {
       const filtered = LOCATION_SUGGESTIONS.filter(s => s.toLowerCase().includes(val.toLowerCase()))
       setDropSuggestions(filtered)
       setShowDropSuggestions(filtered.length > 0)
+      // Also fetch live Nominatim suggestions for Assam
+      if (val.length >= 3) {
+        fetchNominatimSuggestions(val, 'drop')
+      }
     } else {
       setShowDropSuggestions(false)
     }
   }
+
+  // Fetch live location suggestions from Nominatim restricted to Assam area
+  const nominatimTimer = useRef<NodeJS.Timeout | null>(null)
+  const fetchNominatimSuggestions = useCallback((query: string, target: 'pickup' | 'drop') => {
+    if (nominatimTimer.current) clearTimeout(nominatimTimer.current)
+    nominatimTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Assam')}&viewbox=89.5,27.5,96.5,24.0&bounded=1&limit=5&countrycodes=in&accept-language=as,en&addressdetails=1`,
+          { headers: { 'User-Agent': 'GramYatri/2.0' } }
+        )
+        if (!res.ok) return
+        const data = await res.json()
+        if (!Array.isArray(data) || data.length === 0) return
+        // Build friendly display names from address parts
+        const suggestions: string[] = data.map((item: { address: Record<string, string>; display_name: string }) => {
+          const addr = item.address || {}
+          const parts: string[] = []
+          const micro = addr.neighbourhood || addr.quarter || addr.hamlet || addr.village || addr.suburb
+          if (micro) parts.push(micro)
+          const town = addr.town || addr.city || addr.county
+          if (town && !parts.includes(town)) parts.push(town)
+          return parts.length > 0 ? parts.join(', ') : item.display_name.split(',').slice(0, 2).join(',').trim()
+        }).filter(Boolean)
+
+        if (target === 'pickup') {
+          setPickupSuggestions(prev => {
+            const combined = [...new Set([...prev, ...suggestions])]
+            return combined.slice(0, 8)
+          })
+          setShowPickupSuggestions(true)
+        } else {
+          setDropSuggestions(prev => {
+            const combined = [...new Set([...prev, ...suggestions])]
+            return combined.slice(0, 8)
+          })
+          setShowDropSuggestions(true)
+        }
+      } catch {
+        // silent fail
+      }
+    }, 400)
+  }, [])
 
   const handleGpsDetect = async (target: 'pickup' | 'drop') => {
     setGpsDetecting(true)
@@ -857,7 +985,7 @@ export default function UserPanel() {
         const reverseGeocode = async (zoom: number): Promise<string> => {
           try {
             const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&accept-language=as,en`,
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&namedetails=1&accept-language=as,en`,
               { headers: { 'User-Agent': 'GramYatri/2.0' } }
             )
             if (!res.ok) return ''
@@ -866,14 +994,19 @@ export default function UserPanel() {
             const addr = data.address || {}
             const parts: string[] = []
 
-            // For rural Assam, village/hamlet name is most useful — prioritize it
-            const village = addr.village || addr.hamlet || addr.town || addr.neighbourhood ||
-              addr.quarter || addr.suburb || addr.residential
-            if (village) parts.push(village)
+            // Most specific: neighbourhood/quarter/hamlet
+            const micro = addr.neighbourhood || addr.quarter || addr.residential || addr.hamlet
+            if (micro) parts.push(micro)
 
-            // Road/street if available and not already included
-            const road = addr.road || addr.pedestrian
-            if (road && !parts.includes(road)) parts.push(road)
+            // Village or suburb level
+            const village = addr.village || addr.suburb || addr.town
+            if (village && !parts.includes(village)) parts.push(village)
+
+            // If still nothing specific, try road
+            if (parts.length === 0) {
+              const road = addr.road || addr.pedestrian
+              if (road) parts.push(road)
+            }
 
             // City/district level
             const city = addr.city || addr.city_district || addr.county
@@ -881,7 +1014,7 @@ export default function UserPanel() {
 
             // Limit to 2-3 parts for readability
             if (parts.length > 0) {
-              return parts.slice(0, 3).join(', ') + ' (GPS)'
+              return parts.slice(0, 2).join(', ') + ' (GPS)'
             }
             // Fallback to display_name
             if (data.display_name) {
@@ -896,11 +1029,15 @@ export default function UserPanel() {
 
         let locationName = ''
         try {
-          // Use zoom=14 (village/neighborhood level — better for rural areas)
-          locationName = await reverseGeocode(14)
-          // If nothing useful at zoom 14, try zoom=12 for a broader area
-          if (!locationName) {
-            locationName = await reverseGeocode(12)
+          // Try zoom=18 (building/street level) first for most precise name
+          locationName = await reverseGeocode(18)
+          // If nothing at 18, try zoom=16 (street level)
+          if (!locationName || locationName === ' (GPS)') {
+            locationName = await reverseGeocode(16)
+          }
+          // If still nothing, try zoom=14 (village level)
+          if (!locationName || locationName === ' (GPS)') {
+            locationName = await reverseGeocode(14)
           }
         } catch {
           // Reverse geocoding failed
