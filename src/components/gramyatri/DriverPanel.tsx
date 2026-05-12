@@ -48,6 +48,7 @@ import {
   Navigation2,
   Milestone,
   ArrowDown,
+  Globe,
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import type { Ride } from '@/lib/store'
@@ -65,7 +66,9 @@ import {
   getDriverNotifications,
   uploadDriverDocuments,
   getDriverDocuments,
+  getPaymentSettings,
 } from '@/lib/api'
+import type { PaymentSettings } from '@/lib/api'
 import RideCard from './RideCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -248,13 +251,139 @@ function DocStatusBadge({ status }: { status: string }) {
   return <Badge className={c.className}>{c.label}</Badge>
 }
 
+// ─── i18n Infrastructure ───────────────────────────────────────────────────
+
+type Lang = 'en' | 'as'
+const T: Record<string, Record<Lang, string>> = {
+  'home': { en: 'Home', as: 'গৃহ' },
+  'rides': { en: 'Rides', as: 'ৰাইড' },
+  'earnings': { en: 'Earnings', as: 'উপাৰ্জন' },
+  'notifications': { en: 'Notifications', as: 'জাননী' },
+  'profile': { en: 'Profile', as: 'প্ৰফাইল' },
+  'goOnline': { en: 'Go Online', as: 'অনলাইন যাওক' },
+  'goOffline': { en: 'Go Offline', as: 'অফলাইন যাওক' },
+  'accept': { en: 'Accept', as: 'গ্ৰহণ কৰক' },
+  'reject': { en: 'Reject', as: 'প্ৰত্যাখ্যান কৰক' },
+  'searchingForRides': { en: 'Searching for rides...', as: 'ৰাইড সন্ধান কৰি আছে...' },
+  'rideInProgress': { en: 'Ride in Progress', as: 'ৰাইড চলি আছে' },
+  'rideCompleted': { en: 'Ride Completed', as: 'ৰাইড সম্পূৰ্ণ হ\'ল' },
+  'rideCancelled': { en: 'Ride Cancelled', as: 'ৰাইড বাতিল হ\'ল' },
+  'vehicleInfo': { en: 'Vehicle Information', as: 'বাহনৰ তথ্য' },
+  'vehicleType': { en: 'Vehicle Type', as: 'বাহনৰ প্ৰকাৰ' },
+  'vehicleNumber': { en: 'Vehicle Number', as: 'বাহন নম্বৰ' },
+  'totalRides': { en: 'Total Rides', as: 'মুঠ ৰাইড' },
+  'totalEarnings': { en: 'Total Earnings', as: 'মুঠ উপাৰ্জন' },
+  'avgRating': { en: 'Avg Rating', as: 'গড় ৰেটিং' },
+  'noRatings': { en: 'No ratings yet', as: 'এতিয়ালৈকে ৰেটিং নাই' },
+  'verifiedDriver': { en: 'Verified Driver', as: 'যাচাইকৃত চালক' },
+  'walletBalance': { en: 'Wallet Balance', as: 'ৱালেট বেলেন্স' },
+  'withdraw': { en: 'Withdraw', as: 'উলিয়াওক' },
+  'todayEarnings': { en: "Today's Earnings", as: 'আজিৰ উপাৰ্জন' },
+  'weeklyEarnings': { en: 'Weekly Earnings', as: 'সাপ্তাহিক উপাৰ্জন' },
+  'monthlyEarnings': { en: 'Monthly Earnings', as: 'মাহিলী উপাৰ্জন' },
+  'rideHistory': { en: 'Ride History', as: 'ৰাইড ইতিহাস' },
+  'noRides': { en: 'No rides yet', as: 'এতিয়ালৈকে কোনো ৰাইড নাই' },
+  'callPassenger': { en: 'Call Passenger', as: 'যাত্ৰীক কল কৰক' },
+  'navigateToPickup': { en: 'Navigate to Pickup', as: 'পিকআপলৈ যাওক' },
+  'startRide': { en: 'Start Ride', as: 'ৰাইড আৰম্ভ কৰক' },
+  'completeRide': { en: 'Complete Ride', as: 'ৰাইড সম্পূৰ্ণ কৰক' },
+  'cancelRide': { en: 'Cancel Ride', as: 'ৰাইড বাতিল কৰক' },
+  'fare': { en: 'Fare', as: 'ভাড়া' },
+  'distance': { en: 'Distance', as: 'দূৰত্ব' },
+  'pickup': { en: 'Pickup', as: 'পিকআপ' },
+  'drop': { en: 'Drop', as: 'ড্ৰপ' },
+  'cash': { en: 'Cash', as: 'নগদ' },
+  'wallet': { en: 'Wallet', as: 'ৱালেট' },
+  'language': { en: 'অসমীয়া / English', as: 'English / অসমীয়া' },
+  'darkMode': { en: 'Dark Mode', as: 'ডাৰ্ক মোড' },
+  'logout': { en: 'Logout', as: 'লগআউট' },
+  'settings': { en: 'Settings', as: 'ছেটিংছ' },
+  'documents': { en: 'Documents', as: 'দস্তাবেজ' },
+  'emergency': { en: 'Emergency SOS', as: 'জৰুৰীকালীন SOS' },
+  'newRideRequest': { en: 'New Ride Request', as: 'নতুন ৰাইড অনুৰোধ' },
+  'passenger': { en: 'Passenger', as: 'যাত্ৰী' },
+  'waitingForPassenger': { en: 'Waiting for passenger', as: 'যাত্ৰীৰ বাবে অপেক্ষা' },
+  'noNotifications': { en: 'No notifications', as: 'কোনো জাননী নাই' },
+  'uploadDocuments': { en: 'Upload Documents', as: 'দস্তাবেজ আপলোড কৰক' },
+  'pendingVerification': { en: 'Pending Verification', as: 'যাচাই বাকী' },
+  'gpsConnected': { en: 'GPS Connected', as: 'GPS সংযুক্ত' },
+  'gpsSearching': { en: 'GPS Searching...', as: 'GPS সন্ধান কৰি...' },
+  'gpsError': { en: 'GPS Error', as: 'GPS ত্ৰুটি' },
+  'locationPermission': { en: 'Location Permission', as: 'অৱস্থান অনুমতি' },
+  'enableLocation': { en: 'Enable Location', as: 'অৱস্থান সক্ষম কৰক' },
+  'registerAsDriver': { en: 'Register as Driver', as: 'চালক হিচাপে পঞ্জীকৰণ কৰক' },
+  'completeRegistration': { en: 'Complete Registration', as: 'পঞ্জীকৰণ সম্পূৰ্ণ কৰক' },
+  'next': { en: 'Next', as: 'পৰৱৰ্তী' },
+  'submit': { en: 'Submit', as: 'জমা দিয়ক' },
+  'back': { en: 'Back', as: 'উভতি' },
+  'licenseNumber': { en: 'License Number', as: 'লাইচেন্স নম্বৰ' },
+  'aadhaarNumber': { en: 'Aadhaar Number', as: 'আধাৰ নম্বৰ' },
+  'rcNumber': { en: 'RC Number', as: 'RC নম্বৰ' },
+  'online': { en: 'Online', as: 'অনলাইন' },
+  'offline': { en: 'Offline', as: 'অফলাইন' },
+  'today': { en: 'Today', as: 'আজি' },
+  'week': { en: 'Week', as: 'সপ্তাহ' },
+  'month': { en: 'Month', as: 'মাহ' },
+  'amount': { en: 'Amount', as: 'পৰিমাণ' },
+  'upiId': { en: 'UPI ID', as: 'UPI ID' },
+  'bankAccount': { en: 'Bank Account', as: 'বেংক একাউণ্ট' },
+  'bankName': { en: 'Bank Name', as: 'বেংকৰ নাম' },
+  'ifscCode': { en: 'IFSC Code', as: 'IFSC কোড' },
+  'withdrawMethod': { en: 'Withdraw Method', as: 'উলিওৱাৰ পদ্ধতি' },
+  'upi': { en: 'UPI', as: 'UPI' },
+  'bankTransfer': { en: 'Bank Transfer', as: 'বেংক স্থানান্তৰ' },
+  'requestWithdraw': { en: 'Request Withdraw', as: 'উলিওৱাৰ অনুৰোধ কৰক' },
+  'commission': { en: 'Commission', as: 'কমিছন' },
+  'yourEarnings': { en: 'Your Earnings', as: 'আপোনাৰ উপাৰ্জন' },
+  'rideDetails': { en: 'Ride Details', as: 'ৰাইডৰ বিৱৰণ' },
+  'paymentMethod': { en: 'Payment Method', as: 'পেমেণ্ট পদ্ধতি' },
+  'rideFare': { en: 'Ride Fare', as: 'ৰাইড ভাড়া' },
+  'speed': { en: 'Speed', as: 'গতি' },
+  'duration': { en: 'Duration', as: 'সময়কাল' },
+  'allRides': { en: 'All Rides', as: 'সকলো ৰাইড' },
+  'completed': { en: 'Completed', as: 'সম্পূৰ্ণ' },
+  'cancelled': { en: 'Cancelled', as: 'বাতিল' },
+  'addNote': { en: 'Add Note', as: 'টিপ্পনী যোগ কৰক' },
+  'soundAlerts': { en: 'Sound Alerts', as: 'শব্দ সতৰ্কবাৰ্তা' },
+  'about': { en: 'About', as: 'বিষয়ে' },
+  'help': { en: 'Help & Support', as: 'সাহায্য আৰু সমৰ্থন' },
+  'editProfile': { en: 'Edit Profile', as: 'প্ৰফাইল সম্পাদনা' },
+  'memberSince': { en: 'Member since', as: 'সদস্যৰ পৰা' },
+  'rideRequest': { en: 'Ride Request', as: 'ৰাইড অনুৰোধ' },
+  'arriving': { en: 'Arriving', as: 'আহি আছে' },
+  'onTheWay': { en: 'On the way', as: 'পথত' },
+  'completedRides': { en: 'Completed Rides', as: 'সম্পূৰ্ণ ৰাইড' },
+  'cancelReason': { en: 'Cancel Reason', as: 'বাতিলৰ কাৰণ' },
+  'confirm': { en: 'Confirm', as: 'নিশ্চিত কৰক' },
+  'cancel': { en: 'Cancel', as: 'বাতিল কৰক' },
+  'save': { en: 'Save', as: 'সংৰক্ষণ কৰক' },
+  'close': { en: 'Close', as: 'বন্ধ কৰক' },
+}
+
 // ─── DriverPanel Component ────────────────────────────────────────────────────
 
 export default function DriverPanel() {
-  const { isOnline, setOnline, activeRide, setActiveRide, incomingRides, setIncomingRides, removeIncomingRide, currentUser, logout, updateWalletBalance } = useAppStore()
+  const { isOnline, setOnline, activeRide, setActiveRide, incomingRides, setIncomingRides, removeIncomingRide, currentUser, logout, updateWalletBalance, updateCurrentUser } = useAppStore()
   const { emitDriverStatus, emitDriverLocation, emitRideAccept, emitRideReject, emitRideComplete, emitRideCancel } = useSocket()
 
   const [activeTab, setActiveTab] = useState<DriverTab>('home')
+
+  // ─── i18n state & helpers ─────────────────────────────────────────────────
+  const [lang, setLang] = useState<Lang>(() => {
+    if (typeof localStorage !== 'undefined') {
+      return (localStorage.getItem('gramyatri-lang') as Lang) || 'as'
+    }
+    return 'as'
+  })
+  const t = (key: string): string => T[key]?.[lang] || T[key]?.en || key
+  const toggleLang = () => {
+    const next = lang === 'en' ? 'as' : 'en'
+    setLang(next)
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('gramyatri-lang', next)
+    }
+  }
+
   const [earningsPeriod, setEarningsPeriod] = useState<'today' | 'week' | 'month'>('today')
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [withdrawAmount, setWithdrawAmount] = useState('')
@@ -334,6 +463,11 @@ export default function DriverPanel() {
   // Enhanced: Navigation speed simulation
   const [currentSpeed, setCurrentSpeed] = useState(0)
   const speedSimRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // UPI Payment settings
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({ upiId: '', paymentQrUrl: '', paymentInstructions: '', upiPaymentEnabled: false })
+  const [showUpiPayment, setShowUpiPayment] = useState(false)
+  const [upiPaid, setUpiPaid] = useState(false)
 
   // Keep currentLocationRef in sync with currentLocation
   useEffect(() => {
@@ -510,6 +644,11 @@ export default function DriverPanel() {
     }
     fetchWallet()
   }, [driverId, updateWalletBalance, fetchDocuments])
+
+  // Load payment settings on mount
+  useEffect(() => {
+    getPaymentSettings().then(setPaymentSettings)
+  }, [])
 
   // ─── Ride Request Countdown Timer ───────────────────────────────────────
 
@@ -918,6 +1057,15 @@ export default function DriverPanel() {
         vehiclePhoto: vehiclePhotoPreview || undefined,
       })
       if (res.success) {
+        // Update store so the user is now recognized as a registered (but unapproved) driver
+        updateCurrentUser({
+          role: 'DRIVER',
+          vehicleType,
+          vehicleNumber,
+          licenseNumber,
+          isRegistered: true,
+          isApproved: false,
+        })
         toast.success('Registration submitted for verification!')
         setShowRegistration(false)
       }
@@ -1029,19 +1177,19 @@ export default function DriverPanel() {
   // ─── GPS Status Config ───────────────────────────────────────────────────
 
   const gpsStatusConfig: Record<GpsStatus, { color: string; label: string; dotClass: string }> = {
-    connected: { color: 'text-emerald-600', label: 'GPS Connected', dotClass: 'bg-emerald-500' },
-    searching: { color: 'text-amber-500', label: 'GPS Searching', dotClass: 'bg-amber-500' },
-    error: { color: 'text-red-500', label: 'GPS Error', dotClass: 'bg-red-500' },
+    connected: { color: 'text-emerald-600', label: t('gpsConnected'), dotClass: 'bg-emerald-500' },
+    searching: { color: 'text-amber-500', label: t('gpsSearching'), dotClass: 'bg-amber-500' },
+    error: { color: 'text-red-500', label: t('gpsError'), dotClass: 'bg-red-500' },
   }
 
   // ─── Tab Config ───────────────────────────────────────────────────────────
 
   const tabs: { key: DriverTab; label: string; icon: React.ReactNode }[] = [
-    { key: 'home', label: 'Home', icon: <Home className="h-5 w-5" /> },
-    { key: 'rides', label: 'Rides', icon: <Route className="h-5 w-5" /> },
-    { key: 'earnings', label: 'Earnings', icon: <IndianRupee className="h-5 w-5" /> },
-    { key: 'notifications', label: 'Alerts', icon: <Bell className="h-5 w-5" /> },
-    { key: 'profile', label: 'Profile', icon: <User className="h-5 w-5" /> },
+    { key: 'home', label: t('home'), icon: <Home className="h-5 w-5" /> },
+    { key: 'rides', label: t('rides'), icon: <Route className="h-5 w-5" /> },
+    { key: 'earnings', label: t('earnings'), icon: <IndianRupee className="h-5 w-5" /> },
+    { key: 'notifications', label: t('notifications'), icon: <Bell className="h-5 w-5" /> },
+    { key: 'profile', label: t('profile'), icon: <User className="h-5 w-5" /> },
   ]
 
   // ─── Navigation Direction Steps (simulated) ──────────────────────────────
@@ -1064,7 +1212,7 @@ export default function DriverPanel() {
           <Button variant="ghost" size="sm" onClick={() => setShowRegistration(false)}>
             <X className="h-4 w-4" />
           </Button>
-          <h1 className="text-lg font-bold text-orange-600">Driver Registration</h1>
+          <h1 className="text-lg font-bold text-orange-600">{t('registerAsDriver')}</h1>
         </div>
 
         {/* Progress */}
@@ -1092,8 +1240,8 @@ export default function DriverPanel() {
                   <div className="w-16 h-16 rounded-full bg-orange-100 dark:bg-orange-900 flex items-center justify-center mx-auto mb-3">
                     <Car className="h-8 w-8 text-orange-600" />
                   </div>
-                  <h2 className="text-lg font-bold">Vehicle Details</h2>
-                  <p className="text-sm text-muted-foreground">Tell us about your vehicle</p>
+                  <h2 className="text-lg font-bold">{lang === 'as' ? 'বাহনৰ বিৱৰণ' : 'Vehicle Details'}</h2>
+                  <p className="text-sm text-muted-foreground">{lang === 'as' ? 'আপোনাৰ বাহনৰ বিষয়ে কওক' : 'Tell us about your vehicle'}</p>
                 </div>
 
                 <div>
@@ -1151,8 +1299,8 @@ export default function DriverPanel() {
                   <div className="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center mx-auto mb-3">
                     <Shield className="h-8 w-8 text-blue-600" />
                   </div>
-                  <h2 className="text-lg font-bold">Aadhaar Verification</h2>
-                  <p className="text-sm text-muted-foreground">Upload your Aadhaar card for identity verification</p>
+                  <h2 className="text-lg font-bold">{lang === 'as' ? 'আধাৰ যাচাই' : 'Aadhaar Verification'}</h2>
+                  <p className="text-sm text-muted-foreground">{lang === 'as' ? 'পৰিচয় যাচাইৰ বাবে আধাৰ কাৰ্ড আপলোড কৰক' : 'Upload your Aadhaar card for identity verification'}</p>
                 </div>
 
                 <div>
@@ -1196,8 +1344,8 @@ export default function DriverPanel() {
                   <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center mx-auto mb-3">
                     <FileText className="h-8 w-8 text-emerald-600" />
                   </div>
-                  <h2 className="text-lg font-bold">Driving License</h2>
-                  <p className="text-sm text-muted-foreground">Upload your driving license</p>
+                  <h2 className="text-lg font-bold">{lang === 'as' ? 'ড্ৰাইভিং লাইচেন্স' : 'Driving License'}</h2>
+                  <p className="text-sm text-muted-foreground">{lang === 'as' ? 'আপোনাৰ ড্ৰাইভিং লাইচেন্স আপলোড কৰক' : 'Upload your driving license'}</p>
                 </div>
 
                 <div>
@@ -1236,8 +1384,8 @@ export default function DriverPanel() {
                   <div className="w-16 h-16 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center mx-auto mb-3">
                     <Car className="h-8 w-8 text-purple-600" />
                   </div>
-                  <h2 className="text-lg font-bold">Vehicle RC (Registration Certificate)</h2>
-                  <p className="text-sm text-muted-foreground">Upload your vehicle RC book</p>
+                  <h2 className="text-lg font-bold">{lang === 'as' ? 'বাহন RC (পঞ্জীকৰণ প্ৰমাণপত্ৰ)' : 'Vehicle RC (Registration Certificate)'}</h2>
+                  <p className="text-sm text-muted-foreground">{lang === 'as' ? 'আপোনাৰ বাহন RC বহি আপলোড কৰক' : 'Upload your vehicle RC book'}</p>
                 </div>
 
                 <div>
@@ -1284,7 +1432,7 @@ export default function DriverPanel() {
                     ) : (
                       <CheckCircle className="h-4 w-4 mr-2" />
                     )}
-                    Submit Registration
+                    {t('completeRegistration')}
                   </Button>
                 </div>
               </motion.div>
@@ -1312,16 +1460,16 @@ export default function DriverPanel() {
           >
             🛺
           </motion.div>
-          <h2 className="text-xl font-bold mb-2">Become a GramYatri Driver</h2>
+          <h2 className="text-xl font-bold mb-2">{t('registerAsDriver')}</h2>
           <p className="text-sm text-muted-foreground mb-6 max-w-xs">
-            Register your vehicle and start earning. Complete verification to accept ride requests.
+            {lang === 'as' ? 'আপোনাৰ বাহন পঞ্জীকৰণ কৰক আৰু উপাৰ্জন আৰম্ভ কৰক। ৰাইড অনুৰোধ গ্ৰহণ কৰিবলৈ যাচাই সম্পূৰ্ণ কৰক।' : 'Register your vehicle and start earning. Complete verification to accept ride requests.'}
           </p>
           <Button
             className="bg-orange-600 hover:bg-orange-700 text-white px-8"
             onClick={() => setShowRegistration(true)}
           >
             <Car className="h-4 w-4 mr-2" />
-            Register as Driver
+            {t('registerAsDriver')}
           </Button>
         </div>
       </div>
@@ -1341,13 +1489,13 @@ export default function DriverPanel() {
           <div className="w-20 h-20 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center mb-6">
             <AlertCircle className="h-10 w-10 text-red-500" />
           </div>
-          <h2 className="text-xl font-bold mb-2">Account Suspended</h2>
+          <h2 className="text-xl font-bold mb-2">{lang === 'as' ? 'একাউণ্ট স্থগিত' : 'Account Suspended'}</h2>
           <p className="text-sm text-muted-foreground mb-4 max-w-xs">
-            Your driver account has been suspended. Please contact support for assistance.
+            {lang === 'as' ? 'আপোনাৰ চালক একাউণ্ট স্থগিত কৰা হৈছে। অনুগ্ৰহ কৰি সহায়ৰ বাবে সমৰ্থনৰ সৈতে যোগাযোগ কৰক।' : 'Your driver account has been suspended. Please contact support for assistance.'}
           </p>
           <Button variant="outline" onClick={logout}>
             <LogOut className="h-4 w-4 mr-2" />
-            Logout
+            {t('logout')}
           </Button>
         </div>
       </div>
@@ -1372,12 +1520,12 @@ export default function DriverPanel() {
           >
             <Clock className="h-10 w-10 text-amber-500" />
           </motion.div>
-          <h2 className="text-xl font-bold mb-2">Verification in Progress</h2>
+          <h2 className="text-xl font-bold mb-2">{t('pendingVerification')}</h2>
           <DocStatusBadge status={vStatus} />
           <p className="text-sm text-muted-foreground mt-3 mb-2 max-w-xs">
             {vStatus === 'REJECTED'
-              ? 'Your documents were rejected. Please re-upload correct documents.'
-              : 'Your documents are being verified. This usually takes 24-48 hours.'}
+              ? (lang === 'as' ? 'আপোনাৰ দস্তাবেজ প্ৰত্যাখ্যান কৰা হৈছে। অনুগ্ৰহ কৰি শুদ্ধ দস্তাবেজ পুনৰ আপলোড কৰক।' : 'Your documents were rejected. Please re-upload correct documents.')
+              : (lang === 'as' ? 'আপোনাৰ দস্তাবেজ যাচাই কৰি থকা হৈছে। ই সাধাৰণতে ২৪-৪৮ ঘণ্টা লাগে।' : 'Your documents are being verified. This usually takes 24-48 hours.')}
           </p>
           {documents?.rejectReason && (
             <div className="bg-red-50 dark:bg-red-950 border border-red-200 px-3 py-2 rounded-lg mb-4 w-full">
@@ -1389,11 +1537,11 @@ export default function DriverPanel() {
           <div className="flex gap-2 mt-4">
             <Button variant="outline" onClick={() => { setDocUploadOpen(true); setDocUploadType('aadhaar') }}>
               <Upload className="h-4 w-4 mr-2" />
-              Re-upload Docs
+              {t('uploadDocuments')}
             </Button>
             <Button variant="outline" onClick={logout}>
               <LogOut className="h-4 w-4 mr-2" />
-              Logout
+              {t('logout')}
             </Button>
           </div>
         </div>
@@ -1441,7 +1589,7 @@ export default function DriverPanel() {
               />
             )}
             <Badge variant={isOnline ? 'default' : 'secondary'} className={isOnline ? 'bg-emerald-600' : ''}>
-              {isOnline ? 'Online' : 'Offline'}
+              {isOnline ? t('online') : t('offline')}
             </Badge>
           </div>
         </div>
@@ -1498,9 +1646,9 @@ export default function DriverPanel() {
                         )}
                       </div>
                       <div>
-                        <h2 className="text-xl font-bold">{isOnline ? 'You\'re Online' : 'You\'re Offline'}</h2>
+                        <h2 className="text-xl font-bold">{isOnline ? (lang === 'as' ? 'আপুনি অনলাইন' : "You're Online") : (lang === 'as' ? 'আপুনি অফলাইন' : "You're Offline")}</h2>
                         <p className="text-sm opacity-90">
-                          {isOnline ? 'Receiving ride requests now' : 'Go online to receive rides'}
+                          {isOnline ? (lang === 'as' ? 'এতিয়া ৰাইড অনুৰোধ গ্ৰহণ কৰি আছে' : 'Receiving ride requests now') : (lang === 'as' ? 'ৰাইড পাবলৈ অনলাইন যাওক' : 'Go online to receive rides')}
                         </p>
                       </div>
                     </div>
@@ -1522,7 +1670,7 @@ export default function DriverPanel() {
                         transition={{ duration: 2, repeat: Infinity }}
                         className="w-3 h-3 rounded-full bg-green-300"
                       />
-                      <span className="text-sm font-medium">Waiting for rides...</span>
+                      <span className="text-sm font-medium">{t('searchingForRides')}</span>
                     </motion.div>
                   )}
 
@@ -1609,7 +1757,7 @@ export default function DriverPanel() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Route className="h-4 w-4 text-orange-500" />
-                      <span className="text-xs text-muted-foreground">Today&apos;s Rides</span>
+                      <span className="text-xs text-muted-foreground">{lang === 'as' ? 'আজিৰ ৰাইড' : "Today's Rides"}</span>
                     </div>
                     <p className="text-2xl font-bold">
                       {loadingEarnings ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : earningsData.rides}
@@ -1620,7 +1768,7 @@ export default function DriverPanel() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <IndianRupee className="h-4 w-4 text-emerald-500" />
-                      <span className="text-xs text-muted-foreground">Today&apos;s Earnings</span>
+                      <span className="text-xs text-muted-foreground">{t('todayEarnings')}</span>
                     </div>
                     <p className="text-2xl font-bold">
                       {loadingEarnings ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : `₹${earningsData.total.toLocaleString()}`}
@@ -1638,13 +1786,13 @@ export default function DriverPanel() {
                         <Wallet className="h-5 w-5 text-emerald-600" />
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Wallet Balance</p>
+                        <p className="text-xs text-muted-foreground">{t('walletBalance')}</p>
                         <p className="text-lg font-bold">₹{(currentUser?.walletBalance || 0).toLocaleString()}</p>
                       </div>
                     </div>
                     <Button variant="outline" size="sm" onClick={() => setActiveTab('earnings')}>
                       <IndianRupee className="h-3 w-3 mr-1" />
-                      Earnings
+                      {t('earnings')}
                     </Button>
                   </div>
                 </CardContent>
@@ -1660,7 +1808,7 @@ export default function DriverPanel() {
                         transition={{ duration: 1, repeat: Infinity }}
                         className="w-2.5 h-2.5 rounded-full bg-orange-500"
                       />
-                      <h3 className="font-semibold text-sm">Incoming Ride Requests ({incomingRides.length})</h3>
+                      <h3 className="font-semibold text-sm">{t('newRideRequest')} ({incomingRides.length})</h3>
                     </div>
                     {/* Sound indicator */}
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -1758,7 +1906,7 @@ export default function DriverPanel() {
                                   disabled={actionLoading === `accept-${ride.id}`}
                                 >
                                   <ThumbsUp className="h-4 w-4" />
-                                  Accept
+                                  {t('accept')}
                                 </button>
                                 <div className="w-px bg-white/20" />
                                 <button
@@ -1766,7 +1914,7 @@ export default function DriverPanel() {
                                   onClick={() => handleRideAction('reject', ride.id)}
                                 >
                                   <ThumbsDown className="h-4 w-4" />
-                                  Reject
+                                  {t('reject')}
                                 </button>
                               </div>
                             </CardContent>
@@ -1792,8 +1940,8 @@ export default function DriverPanel() {
                   >
                     🛺
                   </motion.div>
-                  <p className="text-muted-foreground text-sm">Waiting for ride requests...</p>
-                  <p className="text-xs text-muted-foreground mt-1">Make sure your GPS is active</p>
+                  <p className="text-muted-foreground text-sm">{t('searchingForRides')}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{lang === 'as' ? 'নিশ্চিত কৰক যে আপোনাৰ GPS সক্ৰিয়' : 'Make sure your GPS is active'}</p>
                 </motion.div>
               )}
             </motion.div>
@@ -1814,7 +1962,7 @@ export default function DriverPanel() {
                 <div>
                   <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
                     <CircleDot className="h-4 w-4 text-emerald-500" />
-                    Active Ride
+                    {lang === 'as' ? 'সক্ৰিয় ৰাইড' : 'Active Ride'}
                   </h3>
                   <RideCard ride={activeRide} variant="active" onAction={handleRideAction} />
 
@@ -1837,7 +1985,7 @@ export default function DriverPanel() {
                           onClick={() => handleRideAction('navigate')}
                         >
                           <MapPin className="h-4 w-4 mr-2" />
-                          Navigate
+                          {lang === 'as' ? 'নেভিগেট' : 'Navigate'}
                         </Button>
                       </>
                     )}
@@ -1848,7 +1996,7 @@ export default function DriverPanel() {
                         disabled={actionLoading === 'complete'}
                       >
                         {actionLoading === 'complete' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-                        Complete Ride
+                        {t('completeRide')}
                       </Button>
                     )}
                     <Button
@@ -1858,7 +2006,7 @@ export default function DriverPanel() {
                       disabled={actionLoading === 'cancel'}
                     >
                       {actionLoading === 'cancel' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
-                      Cancel
+                      {t('cancel')}
                     </Button>
                   </div>
 
@@ -1872,7 +2020,7 @@ export default function DriverPanel() {
                           </div>
                           <div className="flex-1">
                             <p className="text-sm font-medium">
-                              {activeRide.status === 'ACCEPTED' ? 'Navigate to Pickup' : 'Navigate to Drop-off'}
+                              {activeRide.status === 'ACCEPTED' ? t('navigateToPickup') : (lang === 'as' ? 'ড্ৰপ-অফলৈ যাওক' : 'Navigate to Drop-off')}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {activeRide.status === 'ACCEPTED' ? activeRide.pickup : activeRide.drop}
@@ -1883,7 +2031,7 @@ export default function DriverPanel() {
                             className="bg-blue-600 hover:bg-blue-700 text-white"
                             onClick={() => setNavOpen(true)}
                           >
-                            Navigate
+                            {lang === 'as' ? 'নেভিগেট' : 'Navigate'}
                           </Button>
                         </div>
                       </CardContent>
@@ -1897,8 +2045,8 @@ export default function DriverPanel() {
                 <Card className="border-0 shadow-sm">
                   <CardContent className="p-6 text-center">
                     <Route className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">No active ride</p>
-                    <p className="text-xs text-muted-foreground mt-1">Go online to receive ride requests</p>
+                    <p className="text-sm text-muted-foreground">{lang === 'as' ? 'কোনো সক্ৰিয় ৰাইড নাই' : 'No active ride'}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{lang === 'as' ? 'ৰাইড অনুৰোধ পাবলৈ অনলাইন যাওক' : 'Go online to receive ride requests'}</p>
                   </CardContent>
                 </Card>
               )}
@@ -1934,21 +2082,21 @@ export default function DriverPanel() {
               <div>
                 <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
                   <Clock className="h-4 w-4 text-muted-foreground" />
-                  Ride History
+                  {t('rideHistory')}
                   {loadingHistory && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
                 </h3>
                 {loadingHistory && rideHistory.length === 0 ? (
                   <Card className="border-0 shadow-sm">
                     <CardContent className="p-6 text-center">
                       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">Loading ride history...</p>
+                      <p className="text-sm text-muted-foreground">{lang === 'as' ? 'ৰাইড ইতিহাস লোড হৈ আছে...' : 'Loading ride history...'}</p>
                     </CardContent>
                   </Card>
                 ) : rideHistory.length === 0 ? (
                   <Card className="border-0 shadow-sm">
                     <CardContent className="p-6 text-center">
                       <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                      <p className="text-sm text-muted-foreground">No ride history yet</p>
+                      <p className="text-sm text-muted-foreground">{t('noRides')}</p>
                     </CardContent>
                   </Card>
                 ) : (
@@ -1983,7 +2131,7 @@ export default function DriverPanel() {
                     onClick={() => setEarningsPeriod(period)}
                     disabled={loadingEarnings}
                   >
-                    {period}
+                    {t(period)}
                   </Button>
                 ))}
               </div>
@@ -1994,7 +2142,7 @@ export default function DriverPanel() {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <p className="text-sm opacity-90">
-                        {earningsPeriod === 'today' ? "Today's Earnings" : earningsPeriod === 'week' ? "This Week's Earnings" : "This Month's Earnings"}
+                        {earningsPeriod === 'today' ? t('todayEarnings') : earningsPeriod === 'week' ? t('weeklyEarnings') : t('monthlyEarnings')}
                       </p>
                       <p className="text-4xl font-bold mt-1">
                         {loadingEarnings ? <Loader2 className="h-9 w-9 animate-spin" /> : `₹${earningsData.total.toLocaleString()}`}
@@ -2011,7 +2159,7 @@ export default function DriverPanel() {
                     </span>
                     <span className="flex items-center gap-1">
                       <Wallet className="h-3.5 w-3.5" />
-                      Balance: ₹{(currentUser?.walletBalance || 0).toLocaleString()}
+                      {t('walletBalance')}: ₹{(currentUser?.walletBalance || 0).toLocaleString()}
                     </span>
                   </div>
                 </CardContent>
@@ -2023,7 +2171,7 @@ export default function DriverPanel() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Banknote className="h-4 w-4 text-emerald-500" />
-                      <span className="text-xs text-muted-foreground">Take Home</span>
+                      <span className="text-xs text-muted-foreground">{t('yourEarnings')}</span>
                     </div>
                     <p className="text-xl font-bold text-emerald-600">
                       ₹{Math.round(earningsData.total * 0.85).toLocaleString()}
@@ -2035,7 +2183,7 @@ export default function DriverPanel() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <CreditCard className="h-4 w-4 text-red-500" />
-                      <span className="text-xs text-muted-foreground">Commission</span>
+                      <span className="text-xs text-muted-foreground">{t('commission')}</span>
                     </div>
                     <p className="text-xl font-bold text-red-500">
                       ₹{Math.round(earningsData.total * 0.15).toLocaleString()}
@@ -2051,7 +2199,7 @@ export default function DriverPanel() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Wallet className="h-4 w-4 text-emerald-500" />
-                      <span className="text-xs text-muted-foreground">Wallet</span>
+                      <span className="text-xs text-muted-foreground">{t('wallet')}</span>
                     </div>
                     <p className="text-xl font-bold">₹{(currentUser?.walletBalance || 0).toLocaleString()}</p>
                   </CardContent>
@@ -2060,7 +2208,7 @@ export default function DriverPanel() {
                   <CardContent className="p-4">
                     <div className="flex items-center gap-2 mb-1">
                       <CreditCard className="h-4 w-4 text-orange-500" />
-                      <span className="text-xs text-muted-foreground">Total Rides</span>
+                      <span className="text-xs text-muted-foreground">{t('totalRides')}</span>
                     </div>
                     <p className="text-xl font-bold">{earningsData.rides}</p>
                   </CardContent>
@@ -2110,7 +2258,7 @@ export default function DriverPanel() {
                 onClick={() => setWithdrawOpen(true)}
               >
                 <Wallet className="h-5 w-5 mr-2" />
-                Request Withdrawal
+                {lang === 'as' ? 'উলিওৱাৰ অনুৰোধ' : 'Request Withdrawal'}
               </Button>
             </motion.div>
           )}
@@ -2126,7 +2274,7 @@ export default function DriverPanel() {
               className="p-4 space-y-3"
             >
               <div className="flex items-center justify-between mb-2">
-                <h2 className="font-semibold">Notifications</h2>
+                <h2 className="font-semibold">{t('notifications')}</h2>
                 <Button variant="ghost" size="sm" onClick={fetchNotifications}>
                   <RefreshCw className={`h-4 w-4 ${loadingNotifications ? 'animate-spin' : ''}`} />
                 </Button>
@@ -2136,14 +2284,14 @@ export default function DriverPanel() {
                 <Card className="border-0 shadow-sm">
                   <CardContent className="p-6 text-center">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">Loading notifications...</p>
+                    <p className="text-sm text-muted-foreground">{lang === 'as' ? 'জাননী লোড হৈ আছে...' : 'Loading notifications...'}</p>
                   </CardContent>
                 </Card>
               ) : notifications.length === 0 ? (
                 <Card className="border-0 shadow-sm">
                   <CardContent className="p-6 text-center">
                     <Bell className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">No notifications yet</p>
+                    <p className="text-sm text-muted-foreground">{t('noNotifications')}</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -2211,13 +2359,18 @@ export default function DriverPanel() {
                       <h2 className="font-bold text-lg">{driverName}</h2>
                       <p className="text-sm text-muted-foreground">{driverPhone}</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300">Verified Driver</Badge>
+                        <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300">{t('verifiedDriver')}</Badge>
                         {currentUser?.rating ? (
                           <span className="flex items-center gap-1 text-xs">
                             <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-                            {currentUser.rating.toFixed(1)}
+                            {currentUser.rating > 0 ? currentUser.rating.toFixed(1) : t('noRatings')}
                           </span>
-                        ) : null}
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Star className="h-3 w-3 text-muted-foreground" />
+                            {t('noRatings')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2229,29 +2382,29 @@ export default function DriverPanel() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Car className="h-4 w-4 text-orange-500" />
-                    Vehicle Information
+                    {t('vehicleInfo')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Vehicle Type</span>
+                    <span className="text-sm text-muted-foreground">{t('vehicleType')}</span>
                     <span className="text-sm font-medium flex items-center gap-1">
                       {vehicleEmoji(currentUser?.vehicleType)} {vehicleLabel(currentUser?.vehicleType)}
                     </span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Vehicle Number</span>
+                    <span className="text-sm text-muted-foreground">{t('vehicleNumber')}</span>
                     <span className="text-sm font-medium">{currentUser?.vehicleNumber || 'N/A'}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Total Rides</span>
+                    <span className="text-sm text-muted-foreground">{t('totalRides')}</span>
                     <span className="text-sm font-medium">{currentUser?.totalRides || 0}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Total Earnings</span>
+                    <span className="text-sm text-muted-foreground">{t('totalEarnings')}</span>
                     <span className="text-sm font-medium">₹{((currentUser?.totalEarnings || 0)).toLocaleString()}</span>
                   </div>
                 </CardContent>
@@ -2262,7 +2415,7 @@ export default function DriverPanel() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <FileText className="h-4 w-4 text-blue-500" />
-                    Documents
+                    {t('documents')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
@@ -2318,13 +2471,22 @@ export default function DriverPanel() {
 
               {/* Actions */}
               <div className="space-y-2">
+                {/* Language Toggle */}
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={toggleLang}
+                >
+                  <Globe className="h-4 w-4 mr-3" />
+                  {t('language')}
+                </Button>
                 <Button
                   variant="outline"
                   className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
                   onClick={logout}
                 >
                   <LogOut className="h-4 w-4 mr-3" />
-                  Logout
+                  {t('logout')}
                 </Button>
               </div>
             </motion.div>
@@ -2351,9 +2513,9 @@ export default function DriverPanel() {
                 <Compass className="h-6 w-6" />
               </motion.div>
               <div className="flex-1">
-                <h2 className="font-bold text-lg">Navigation Mode</h2>
+                <h2 className="font-bold text-lg">{lang === 'as' ? 'নেভিগেচন মোড' : 'Navigation Mode'}</h2>
                 <p className="text-xs opacity-90">
-                  {activeRide.status === 'ACCEPTED' ? 'Head to pickup point' : 'Heading to drop-off'}
+                  {activeRide.status === 'ACCEPTED' ? (lang === 'as' ? 'পিকআপ বিন্দুলৈ যাওক' : 'Head to pickup point') : (lang === 'as' ? 'ড্ৰপ-অফলৈ যাওক' : 'Heading to drop-off')}
                 </p>
               </div>
               {/* Current Speed Display */}
@@ -2396,7 +2558,7 @@ export default function DriverPanel() {
                 </div>
                 <div className="flex-1 space-y-4">
                   <div>
-                    <p className="text-xs text-muted-foreground">Pickup</p>
+                    <p className="text-xs text-muted-foreground">{t('pickup')}</p>
                     <p className="text-sm font-medium">{activeRide.pickup}</p>
                   </div>
                   <div>
@@ -2408,7 +2570,7 @@ export default function DriverPanel() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Drop-off</p>
+                    <p className="text-xs text-muted-foreground">{t('drop')}</p>
                     <p className="text-sm font-medium">{activeRide.drop}</p>
                   </div>
                 </div>
@@ -2419,7 +2581,7 @@ export default function DriverPanel() {
             <div className="px-4 py-3 bg-white dark:bg-gray-900 border-b">
               <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                 <Milestone className="h-4 w-4 text-orange-500" />
-                Directions
+                {lang === 'as' ? 'নিৰ্দেশনা' : 'Directions'}
               </h3>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {navigationSteps.map((step, i) => (
@@ -2499,7 +2661,7 @@ export default function DriverPanel() {
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1">
-                      <p className="text-sm font-medium">{activeRide.userName || 'Passenger'}</p>
+                      <p className="text-sm font-medium">{activeRide.userName || t('passenger')}</p>
                       <div className="flex items-center gap-2">
                         <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300 text-[10px]">
                           {vehicleEmoji(activeRide.vehicleType)} {vehicleLabel(activeRide.vehicleType)}
@@ -2540,14 +2702,14 @@ export default function DriverPanel() {
                 }}
               >
                 <ExternalLink className="h-5 w-5 mr-2" />
-                Open in Google Maps
+                {lang === 'as' ? 'Google Maps ত খোলক' : 'Open in Google Maps'}
               </Button>
               <Button
                 variant="outline"
                 className="w-full h-10"
                 onClick={() => setNavOpen(false)}
               >
-                Close Navigation
+                {t('close')} {lang === 'as' ? 'নেভিগেচন' : 'Navigation'}
               </Button>
             </div>
           </motion.div>
@@ -2563,14 +2725,14 @@ export default function DriverPanel() {
               Start Ride Confirmation
             </DialogTitle>
             <DialogDescription>
-              Verify pickup details before starting the ride
+              {lang === 'as' ? 'ৰাইড আৰম্ভ কৰাৰ আগতে পিকআপৰ বিৱৰণ যাচাই কৰক' : 'Verify pickup details before starting the ride'}
             </DialogDescription>
           </DialogHeader>
           {activeRide && (
             <div className="space-y-4 pt-2">
               {/* Pickup Verification */}
               <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
-                <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-1">Pickup Location</p>
+                <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-1">{t('pickup')} {lang === 'as' ? 'স্থান' : 'Location'}</p>
                 <div className="flex items-center gap-2">
                   <MapPin className="h-4 w-4 text-blue-500" />
                   <p className="text-sm font-medium">{activeRide.pickup}</p>
@@ -2579,7 +2741,7 @@ export default function DriverPanel() {
 
               {/* Drop-off */}
               <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800">
-                <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mb-1">Drop-off Location</p>
+                <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mb-1">{t('drop')} {lang === 'as' ? 'স্থান' : 'Location'}</p>
                 <div className="flex items-center gap-2">
                   <MapPin className="h-4 w-4 text-orange-500" />
                   <p className="text-sm font-medium">{activeRide.drop}</p>
@@ -2589,15 +2751,15 @@ export default function DriverPanel() {
               {/* Ride Details */}
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
-                  <p className="text-xs text-muted-foreground">Fare</p>
+                  <p className="text-xs text-muted-foreground">{t('fare')}</p>
                   <p className="text-sm font-bold">₹{activeRide.fare}</p>
                 </div>
                 <div className="p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
-                  <p className="text-xs text-muted-foreground">Distance</p>
+                  <p className="text-xs text-muted-foreground">{t('distance')}</p>
                   <p className="text-sm font-bold">{activeRide.distance ? `${activeRide.distance.toFixed(1)} km` : 'N/A'}</p>
                 </div>
                 <div className="p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
-                  <p className="text-xs text-muted-foreground">Payment</p>
+                  <p className="text-xs text-muted-foreground">{t('paymentMethod')}</p>
                   <p className="text-sm font-bold">{activeRide.paymentMethod}</p>
                 </div>
               </div>
@@ -2610,8 +2772,8 @@ export default function DriverPanel() {
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="text-sm font-medium">{activeRide.userName || 'Passenger'}</p>
-                  <p className="text-xs text-muted-foreground">Confirm passenger is at pickup point</p>
+                  <p className="text-sm font-medium">{activeRide.userName || t('passenger')}</p>
+                  <p className="text-xs text-muted-foreground">{lang === 'as' ? 'নিশ্চিত কৰক যে যাত্ৰী পিকআপ বিন্দুত আছে' : 'Confirm passenger is at pickup point'}</p>
                 </div>
               </div>
 
@@ -2621,7 +2783,7 @@ export default function DriverPanel() {
                   className="flex-1"
                   onClick={() => setShowStartConfirm(false)}
                 >
-                  Cancel
+                  {t('cancel')}
                 </Button>
                 <Button
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
@@ -2629,7 +2791,7 @@ export default function DriverPanel() {
                   disabled={actionLoading === 'start'}
                 >
                   {actionLoading === 'start' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-                  Confirm & Start
+                  {t('confirm')}
                 </Button>
               </div>
             </div>
@@ -2643,20 +2805,20 @@ export default function DriverPanel() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-emerald-600" />
-              Ride Completed!
+              {t('rideCompleted')}!
             </DialogTitle>
             <DialogDescription>
-              Here is your ride summary
+              {lang === 'as' ? 'আপোনাৰ ৰাইডৰ সাৰাংশ ইয়াত আছে' : 'Here is your ride summary'}
             </DialogDescription>
           </DialogHeader>
           {rideSummaryData && (
             <div className="space-y-4 pt-2">
               {/* Big Fare Card */}
               <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white text-center">
-                <p className="text-sm opacity-90">Fare Collected</p>
+                <p className="text-sm opacity-90">{t('rideFare')}</p>
                 <p className="text-4xl font-bold mt-1">₹{rideSummaryData.fare}</p>
                 <p className="text-xs opacity-80 mt-1">
-                  {rideSummaryData.paymentMethod === 'WALLET' ? '💳 Wallet Payment' : '💵 Cash Payment'}
+                  {rideSummaryData.paymentMethod === 'WALLET' ? `💳 ${t('wallet')}` : `💵 ${t('cash')}`}
                 </p>
               </div>
 
@@ -2665,32 +2827,89 @@ export default function DriverPanel() {
                 <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-gray-50 dark:bg-gray-800">
                   <span className="text-sm text-muted-foreground flex items-center gap-2">
                     <Route className="h-4 w-4" />
-                    Distance Traveled
+                    {t('distance')}
                   </span>
                   <span className="text-sm font-medium">{rideSummaryData.distance ? `${rideSummaryData.distance.toFixed(1)} km` : 'N/A'}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-gray-50 dark:bg-gray-800">
                   <span className="text-sm text-muted-foreground flex items-center gap-2">
                     <Clock className="h-4 w-4" />
-                    Ride Duration
+                    {t('duration')}
                   </span>
                   <span className="text-sm font-medium">{rideSummaryData.duration}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-red-50 dark:bg-red-950">
                   <span className="text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
                     <CreditCard className="h-4 w-4" />
-                    Commission (15%)
+                    {t('commission')} (15%)
                   </span>
                   <span className="text-sm font-medium text-red-600 dark:text-red-400">-₹{rideSummaryData.commission}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-950">
                   <span className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
                     <Banknote className="h-4 w-4" />
-                    Your Earnings
+                    {t('yourEarnings')}
                   </span>
                   <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">₹{rideSummaryData.takeHome}</span>
                 </div>
               </div>
+
+              {/* UPI Payment Option for commission payment */}
+              {paymentSettings.upiPaymentEnabled && (
+                <div className="space-y-2">
+                  {!showUpiPayment ? (
+                    <Button
+                      variant="outline"
+                      className="w-full border-orange-300 text-orange-600 hover:bg-orange-50"
+                      onClick={() => setShowUpiPayment(true)}
+                    >
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Pay Commission via UPI
+                    </Button>
+                  ) : (
+                    <div className="space-y-3 p-3 bg-orange-50 dark:bg-orange-950/30 rounded-lg border border-orange-200 dark:border-orange-800">
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="h-4 w-4 text-orange-600" />
+                        <span className="text-sm font-bold text-orange-700 dark:text-orange-400">Pay Commission via UPI</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Pay ₹{rideSummaryData.commission} commission to admin</p>
+                      {paymentSettings.upiId && (
+                        <div className="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 rounded-md">
+                          <span className="text-xs text-muted-foreground">UPI ID:</span>
+                          <span className="text-sm font-mono font-medium">{paymentSettings.upiId}</span>
+                        </div>
+                      )}
+                      {paymentSettings.paymentQrUrl && (
+                        <div className="text-center p-2 bg-white dark:bg-gray-800 rounded-md">
+                          <img src={paymentSettings.paymentQrUrl} alt="Payment QR Code" className="max-h-32 mx-auto rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                          <p className="text-[10px] text-muted-foreground mt-1">Scan QR to pay commission</p>
+                        </div>
+                      )}
+                      {paymentSettings.paymentInstructions && (
+                        <div className="p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-md">
+                          <p className="text-xs text-emerald-700 dark:text-emerald-400">{paymentSettings.paymentInstructions}</p>
+                        </div>
+                      )}
+                      {!upiPaid ? (
+                        <Button
+                          className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+                          onClick={() => {
+                            setUpiPaid(true)
+                            toast.success('Commission payment confirmed!')
+                          }}
+                        >
+                          I&apos;ve Paid ₹{rideSummaryData.commission}
+                        </Button>
+                      ) : (
+                        <div className="flex items-center gap-2 p-2 bg-emerald-100 dark:bg-emerald-950 rounded-md">
+                          <CheckCircle className="h-4 w-4 text-emerald-600" />
+                          <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Payment confirmed!</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <Button
                 className="w-full bg-orange-600 hover:bg-orange-700 text-white"
@@ -2789,15 +3008,15 @@ export default function DriverPanel() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Wallet className="h-5 w-5 text-orange-600" />
-              Withdraw Money
+              {t('withdraw')}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div>
-              <p className="text-sm text-muted-foreground mb-1">Available Balance: <span className="font-bold text-emerald-600">₹{(currentUser?.walletBalance || 0).toLocaleString()}</span></p>
+              <p className="text-sm text-muted-foreground mb-1">{lang === 'as' ? 'উপলব্ধ বেলেন্স' : 'Available Balance'}: <span className="font-bold text-emerald-600">₹{(currentUser?.walletBalance || 0).toLocaleString()}</span></p>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Amount (₹)</label>
+              <label className="text-sm font-medium mb-1 block">{t('amount')} (₹)</label>
               <Input
                 type="number"
                 placeholder="Enter amount"
@@ -2806,32 +3025,32 @@ export default function DriverPanel() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Withdraw Method</label>
+              <label className="text-sm font-medium mb-1 block">{t('withdrawMethod')}</label>
               <Select value={withdrawMethod} onValueChange={(v: 'upi' | 'bank') => setWithdrawMethod(v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="upi">UPI Transfer</SelectItem>
-                  <SelectItem value="bank">Bank Transfer</SelectItem>
+                  <SelectItem value="upi">{t('upi')}</SelectItem>
+                  <SelectItem value="bank">{t('bankTransfer')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {withdrawMethod === 'upi' ? (
               <div>
-                <label className="text-sm font-medium mb-1 block">UPI ID</label>
+                <label className="text-sm font-medium mb-1 block">{t('upiId')}</label>
                 <Input placeholder="yourname@upi" value={upiId} onChange={(e) => setUpiId(e.target.value)} />
               </div>
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="text-sm font-medium mb-1 block">Bank Name</label>
+                  <label className="text-sm font-medium mb-1 block">{t('bankName')}</label>
                   <Input placeholder="Bank name" value={bankName} onChange={(e) => setBankName(e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1 block">Account Number</label>
+                  <label className="text-sm font-medium mb-1 block">{t('bankAccount')}</label>
                   <Input placeholder="Account number" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1 block">IFSC Code</label>
+                  <label className="text-sm font-medium mb-1 block">{t('ifscCode')}</label>
                   <Input placeholder="IFSC code" value={ifscCode} onChange={(e) => setIfscCode(e.target.value)} />
                 </div>
               </div>
@@ -2842,7 +3061,7 @@ export default function DriverPanel() {
               disabled={actionLoading === 'withdraw'}
             >
               {actionLoading === 'withdraw' ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wallet className="h-4 w-4 mr-2" />}
-              Submit Withdrawal Request
+              {t('requestWithdraw')}
             </Button>
           </div>
         </DialogContent>

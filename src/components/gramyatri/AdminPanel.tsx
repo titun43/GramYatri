@@ -13,7 +13,7 @@ import {
   MapPinned, Pause, Play, ToggleLeft, ToggleRight,
   ExternalLink, Timer, Trophy, Snowflake, ThumbsUp, ThumbsDown,
   Mail, MessageSquare, Calendar, CheckSquare, Square,
-  ChevronDown, ChevronUp, X, Globe, Route
+  ChevronDown, ChevronUp, X, Globe, Route, CreditCard
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useAppStore } from '@/lib/store'
+import { toast } from 'sonner'
 import {
   getAdminStats, getAdminUsers, approveDriver, rejectDriver,
   blockUser, unblockUser, getRides, updateRide, updateCommission,
@@ -46,7 +47,7 @@ import {
 
 // ─── Types ──────────────────────────────────────────────
 
-type AdminTab = 'dashboard' | 'drivers' | 'rides' | 'wallet' | 'reports' | 'notifications' | 'settings'
+type AdminTab = 'dashboard' | 'drivers' | 'rides' | 'users' | 'wallet' | 'reports' | 'notifications' | 'settings'
 
 interface PendingDriver {
   id: string; userId: string; name: string; phone: string;
@@ -71,6 +72,7 @@ interface UserItem {
   id: string; name: string; phone: string; role: string;
   walletBalance: number; isVerified: boolean; isOnline: boolean;
   isBlocked: boolean; totalRides: number; rating: number;
+  driverStatus?: string; // PENDING, APPROVED, SUSPENDED, or undefined if not a driver
 }
 
 interface WalletItem {
@@ -206,12 +208,25 @@ function normalizeRide(r: Record<string, unknown>): RideItem {
 }
 
 function normalizeUser(u: Record<string, unknown>): UserItem {
+  const wallet = (u.wallet as Record<string, unknown>) || {}
+  const driver = (u.driver as Record<string, unknown>) || {}
+  // Determine driver status from nested driver object
+  let driverStatus: string | undefined
+  if (u.role === 'DRIVER' || Object.keys(driver).length > 0) {
+    if (driver.isSuspended) driverStatus = 'SUSPENDED'
+    else if (driver.isApproved) driverStatus = 'APPROVED'
+    else driverStatus = 'PENDING'
+  }
   return {
     id: String(u.id || ''), name: String(u.name || 'Unknown'),
     phone: String(u.phone || ''), role: String(u.role || 'USER'),
-    walletBalance: Number(u.walletBalance || 0), isVerified: !!u.isVerified,
-    isOnline: !!u.isOnline, isBlocked: !!u.isBlocked,
-    totalRides: Number(u.totalRides || 0), rating: Number(u.rating || 0),
+    walletBalance: Number(wallet.balance ?? u.walletBalance ?? 0),
+    isVerified: !!u.isVerified,
+    isOnline: !!(driver.isOnline ?? u.isOnline),
+    isBlocked: !!u.isBlocked,
+    totalRides: Number(driver.totalRides ?? u.totalRides ?? 0),
+    rating: Number(driver.rating ?? u.rating ?? 0),
+    driverStatus,
   }
 }
 
@@ -235,6 +250,70 @@ function normalizeOffer(o: Record<string, unknown>): OfferItem {
 }
 
 const PIE_COLORS = ['#16a34a', '#f97316', '#3b82f6', '#ef4444', '#8b5cf6']
+
+// ─── UPI Settings Inline Component ──────────────────────
+
+function UpiSettingsInline({ upiId, qrUrl, instructions, enabled, onSave }: {
+  upiId: string; qrUrl: string; instructions: string; enabled: boolean;
+  onSave: (data: { upiId: string; qrUrl: string; instructions: string; enabled: boolean }) => Promise<void>
+}) {
+  const [localUpiId, setLocalUpiId] = useState(upiId)
+  const [localQrUrl, setLocalQrUrl] = useState(qrUrl)
+  const [localInstructions, setLocalInstructions] = useState(instructions)
+  const [localEnabled, setLocalEnabled] = useState(enabled)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setLocalUpiId(upiId)
+    setLocalQrUrl(qrUrl)
+    setLocalInstructions(instructions)
+    setLocalEnabled(enabled)
+  }, [upiId, qrUrl, instructions, enabled])
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">Enable UPI Payment</span>
+        <Switch checked={localEnabled} onCheckedChange={setLocalEnabled} />
+      </div>
+      <div>
+        <label className="text-xs text-muted-foreground mb-1 block">UPI ID</label>
+        <Input placeholder="e.g., titun43@upi" value={localUpiId} onChange={(e) => setLocalUpiId(e.target.value)} />
+      </div>
+      <div>
+        <label className="text-xs text-muted-foreground mb-1 block">QR Code Image URL</label>
+        <Input placeholder="https://example.com/qr-code.png" value={localQrUrl} onChange={(e) => setLocalQrUrl(e.target.value)} />
+      </div>
+      <div>
+        <label className="text-xs text-muted-foreground mb-1 block">Payment Instructions</label>
+        <Textarea placeholder="e.g., Pay to GPay: titun43@upi" value={localInstructions} onChange={(e) => setLocalInstructions(e.target.value)} rows={2} />
+      </div>
+      {localQrUrl && (
+        <div className="p-2 bg-muted/50 rounded-lg text-center">
+          <img src={localQrUrl} alt="Payment QR Code" className="max-h-32 mx-auto rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          <p className="text-[10px] text-muted-foreground mt-1">QR Code Preview</p>
+        </div>
+      )}
+      <Button
+        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+        disabled={saving}
+        onClick={async () => {
+          setSaving(true)
+          try {
+            await onSave({ upiId: localUpiId, qrUrl: localQrUrl, instructions: localInstructions, enabled: localEnabled })
+            toast.success('Payment settings saved!')
+          } catch {
+            toast.error('Failed to save payment settings')
+          }
+          finally { setSaving(false) }
+        }}
+      >
+        {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CreditCard className="h-4 w-4 mr-2" />}
+        Save Payment Settings
+      </Button>
+    </div>
+  )
+}
 
 // ─── Ride Map SVG Component ─────────────────────────────
 
@@ -540,6 +619,7 @@ export default function AdminPanel() {
   useEffect(() => {
     if (activeTab === 'drivers') loadDrivers()
     else if (activeTab === 'rides') loadRides()
+    else if (activeTab === 'users') loadUsers()
     else if (activeTab === 'wallet') { loadWallets(); loadMockWithdrawals() }
     else if (activeTab === 'reports') loadReports()
     else if (activeTab === 'notifications') { loadUsers(); loadDisputes() }
@@ -666,10 +746,18 @@ export default function AdminPanel() {
 
   const handleUpdateSetting = async (key: string, value: string) => {
     try {
-      await updateAdminSettings([{ key, value }])
-      setAppSettings(prev => prev.map(s => s.key === key ? { ...s, value } : s))
-      setEditingSetting(null)
-    } catch (err) { console.error('Failed to update setting:', err) }
+      const res = await updateAdminSettings([{ key, value }])
+      if (res.success) {
+        await loadSettings()
+        setEditingSetting(null)
+        toast.success('Setting updated')
+      } else {
+        toast.error('Failed to update setting')
+      }
+    } catch (err) {
+      console.error('Failed to update setting:', err)
+      toast.error('Failed to update setting')
+    }
   }
 
   const handleLoadTransactions = async (wallet: WalletItem) => {
@@ -811,6 +899,7 @@ export default function AdminPanel() {
     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'drivers', label: 'Drivers', icon: Car },
     { key: 'rides', label: 'Rides', icon: Navigation },
+    { key: 'users', label: 'Users', icon: UsersIcon },
     { key: 'wallet', label: 'Wallet', icon: Wallet },
     { key: 'reports', label: 'Reports', icon: BarChart3 },
     { key: 'notifications', label: 'Alerts', icon: Bell },
@@ -1398,6 +1487,93 @@ export default function AdminPanel() {
             </motion.div>
           )}
 
+          {/* ═══════════════════ USERS TAB ═══════════════════ */}
+          {activeTab === 'users' && (
+            <motion.div key="users" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="p-4 space-y-4">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Search by name or phone..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} className="pl-9" />
+              </div>
+
+              {/* Summary */}
+              <div className="grid grid-cols-3 gap-3">
+                <Card className="border-0 shadow-md"><CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1"><UsersIcon className="h-4 w-4 text-emerald-600" /><span className="text-xs text-muted-foreground">Total Users</span></div>
+                  <div className="text-2xl font-bold text-emerald-600">{users.length}</div>
+                </CardContent></Card>
+                <Card className="border-0 shadow-md"><CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1"><Shield className="h-4 w-4 text-blue-600" /><span className="text-xs text-muted-foreground">Verified</span></div>
+                  <div className="text-2xl font-bold text-blue-600">{users.filter(u => u.isVerified).length}</div>
+                </CardContent></Card>
+                <Card className="border-0 shadow-md"><CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1"><Ban className="h-4 w-4 text-red-600" /><span className="text-xs text-muted-foreground">Blocked</span></div>
+                  <div className="text-2xl font-bold text-red-600">{users.filter(u => u.isBlocked).length}</div>
+                </CardContent></Card>
+              </div>
+
+              {/* Users List */}
+              {loadingUsers ? (
+                <Card className="border-0 shadow-md"><CardContent className="p-12 text-center"><Loader2 className="h-8 w-8 text-emerald-600 mx-auto mb-3 animate-spin" /><p className="text-sm text-muted-foreground">Loading users...</p></CardContent></Card>
+              ) : filteredUsers.length === 0 ? (
+                <Card className="border-0 shadow-md"><CardContent className="p-12 text-center">
+                  <UsersIcon className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">{userSearch ? 'No users match your search' : 'No users found'}</p>
+                </CardContent></Card>
+              ) : (
+                <div className="space-y-3">
+                  {filteredUsers.map((u) => (
+                    <Card key={u.id} className={`border-0 shadow-md ${u.isBlocked ? 'opacity-60 bg-red-50 dark:bg-red-950/20' : ''}`}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-10 w-10">
+                              <AvatarFallback className={u.role === 'DRIVER' ? 'bg-orange-100 text-orange-700' : u.role === 'ADMIN' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-700'}>
+                                {u.name[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-medium">{u.name}</p>
+                                <Badge className={`text-[10px] ${u.role === 'DRIVER' ? 'bg-orange-100 text-orange-700' : u.role === 'ADMIN' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                  {u.role}
+                                </Badge>
+                                {u.isBlocked && <Badge className="bg-red-100 text-red-700 text-[10px]"><Ban className="h-3 w-3 mr-0.5" />Blocked</Badge>}
+                                {u.isVerified && <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />}
+                                {u.driverStatus && (
+                                  <Badge className={`text-[10px] ${u.driverStatus === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : u.driverStatus === 'SUSPENDED' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                    <Car className="h-3 w-3 mr-0.5" />{u.driverStatus}
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground">{u.phone}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-medium">₹{u.walletBalance.toLocaleString()}</p>
+                            <div className="flex items-center gap-1 mt-1 justify-end">
+                              {u.totalRides > 0 && <span className="text-xs text-muted-foreground">{u.totalRides} rides</span>}
+                              {u.rating > 0 && <span className="text-xs text-yellow-600">★ {u.rating.toFixed(1)}</span>}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={u.isBlocked ? 'outline' : 'destructive'}
+                              className="h-7 text-xs mt-1"
+                              onClick={() => handleBlockUser(u.id, u.isBlocked)}
+                            >
+                              {u.isBlocked ? <CheckCircle className="h-3 w-3 mr-1" /> : <Ban className="h-3 w-3 mr-1" />}
+                              {u.isBlocked ? 'Unblock' : 'Block'}
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+
           {/* ═══════════════════ ENHANCED WALLET TAB ═══════════════════ */}
           {activeTab === 'wallet' && (
             <motion.div key="wallet" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="p-4 space-y-4">
@@ -1915,6 +2091,116 @@ export default function AdminPanel() {
                 </CardContent>
               </Card>
 
+              {/* Service Area / Coverage */}
+              <Card className="border-0 shadow-md">
+                <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><MapPin className="h-4 w-4 text-emerald-600" />Service Area / Coverage</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-xs text-muted-foreground">Set the maximum distance and areas where your GramYatri service operates.</p>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <label className="text-xs text-muted-foreground font-medium">Maximum Service Radius (km)</label>
+                      <div className="flex items-center gap-3 mt-1">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={appSettings.find(s => s.key === 'service_max_radius')?.value || '30'}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setAppSettings(prev => {
+                              const exists = prev.find(s => s.key === 'service_max_radius')
+                              if (exists) return prev.map(s => s.key === 'service_max_radius' ? { ...s, value: val } : s)
+                              return [...prev, { id: 'new_radius', key: 'service_max_radius', value: val, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+                            })
+                          }}
+                          className="w-24"
+                        />
+                        <span className="text-sm text-muted-foreground">km from driver location</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1">Rides beyond this distance won't be offered to drivers.</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <label className="text-xs text-muted-foreground font-medium">Service Center (Your main city/town)</label>
+                      <Input
+                        placeholder="e.g. Nagaon, Hojai, Lanka"
+                        value={appSettings.find(s => s.key === 'service_center')?.value || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setAppSettings(prev => {
+                            const exists = prev.find(s => s.key === 'service_center')
+                            if (exists) return prev.map(s => s.key === 'service_center' ? { ...s, value: val } : s)
+                            return [...prev, { id: 'new_center', key: 'service_center', value: val, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+                          })
+                        }}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <label className="text-xs text-muted-foreground font-medium">Service Areas (comma-separated)</label>
+                      <textarea
+                        placeholder="e.g. Nagaon, Hojai, Lanka, Diphu, Guwahati"
+                        value={appSettings.find(s => s.key === 'service_areas')?.value || ''}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setAppSettings(prev => {
+                            const exists = prev.find(s => s.key === 'service_areas')
+                            if (exists) return prev.map(s => s.key === 'service_areas' ? { ...s, value: val } : s)
+                            return [...prev, { id: 'new_areas', key: 'service_areas', value: val, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+                          })
+                        }}
+                        className="w-full mt-1 p-2 border rounded-md text-sm bg-background min-h-[60px]"
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-1">Only rides within these areas will be accepted.</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <label className="text-xs text-muted-foreground font-medium">Maximum Ride Distance (km)</label>
+                      <div className="flex items-center gap-3 mt-1">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={200}
+                          value={appSettings.find(s => s.key === 'service_max_ride_distance')?.value || '50'}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setAppSettings(prev => {
+                              const exists = prev.find(s => s.key === 'service_max_ride_distance')
+                              if (exists) return prev.map(s => s.key === 'service_max_ride_distance' ? { ...s, value: val } : s)
+                              return [...prev, { id: 'new_max_ride', key: 'service_max_ride_distance', value: val, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]
+                            })
+                          }}
+                          className="w-24"
+                        />
+                        <span className="text-sm text-muted-foreground">km maximum ride distance</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1">Rides longer than this will be rejected.</p>
+                    </div>
+                  </div>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={async () => {
+                      try {
+                        const settingsToSave = [
+                          { key: 'service_max_radius', value: appSettings.find(s => s.key === 'service_max_radius')?.value || '30' },
+                          { key: 'service_center', value: appSettings.find(s => s.key === 'service_center')?.value || '' },
+                          { key: 'service_areas', value: appSettings.find(s => s.key === 'service_areas')?.value || '' },
+                          { key: 'service_max_ride_distance', value: appSettings.find(s => s.key === 'service_max_ride_distance')?.value || '50' },
+                        ]
+                        const res = await updateAdminSettings(settingsToSave)
+                        if (res.success) {
+                          toast.success('Service area settings saved!')
+                        } else {
+                          toast.error('Failed to save settings')
+                        }
+                      } catch {
+                        toast.error('Error saving settings')
+                      }
+                    }}
+                  >
+                    <MapPin className="h-4 w-4 mr-2" />Save Service Area
+                  </Button>
+                </CardContent>
+              </Card>
+
               {/* Offers */}
               <Card className="border-0 shadow-md">
                 <CardHeader className="pb-2">
@@ -1935,6 +2221,37 @@ export default function AdminPanel() {
                       ))}
                     </div>
                   )}
+                </CardContent>
+              </Card>
+
+              {/* UPI / QR Payment Settings */}
+              <Card className="border-0 shadow-md">
+                <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><CreditCard className="h-4 w-4 text-orange-500" />UPI / QR Payment Settings</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  {(() => {
+                    const upiIdSetting = appSettings.find(s => s.key === 'upi_id')
+                    const qrUrlSetting = appSettings.find(s => s.key === 'payment_qr_url')
+                    const instructionsSetting = appSettings.find(s => s.key === 'payment_instructions')
+                    const enabledSetting = appSettings.find(s => s.key === 'upi_payment_enabled')
+                    return <UpiSettingsInline
+                      upiId={upiIdSetting?.value || ''}
+                      qrUrl={qrUrlSetting?.value || ''}
+                      instructions={instructionsSetting?.value || ''}
+                      enabled={enabledSetting?.value === 'true'}
+                      onSave={async (data) => {
+                        const res = await updateAdminSettings([
+                          { key: 'upi_id', value: data.upiId },
+                          { key: 'payment_qr_url', value: data.qrUrl },
+                          { key: 'payment_instructions', value: data.instructions },
+                          { key: 'upi_payment_enabled', value: data.enabled ? 'true' : 'false' },
+                        ])
+                        if (!res.success) {
+                          throw new Error('Failed to save payment settings')
+                        }
+                        await loadSettings()
+                      }}
+                    />
+                  })()}
                 </CardContent>
               </Card>
 

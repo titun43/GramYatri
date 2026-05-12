@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 export type Role = 'USER' | 'DRIVER' | 'ADMIN'
 
@@ -94,80 +95,100 @@ interface AppState {
   addNotification: (notification: Notification) => void
   markNotificationRead: (id: string) => void
   updateWalletBalance: (balance: number) => void
+  updateCurrentUser: (updates: Partial<User>) => void
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
-  currentUser: null,
-  currentRole: null,
-  isLoggedIn: false,
-  isVerified: false,
-  currentView: 'splash',
-  previousView: null,
-  isOnline: false,
-  activeRide: null,
-  incomingRides: [],
-  notifications: [],
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
+      currentUser: null,
+      currentRole: null,
+      isLoggedIn: false,
+      isVerified: false,
+      currentView: 'splash',
+      previousView: null,
+      isOnline: false,
+      activeRide: null,
+      incomingRides: [],
+      notifications: [],
 
-  login: (user) => set({
-    currentUser: user,
-    currentRole: user.role,
-    isLoggedIn: true,
-    isVerified: true,
-    currentView: user.role === 'ADMIN' ? 'admin-dashboard' : 'home',
-    isOnline: user.role === 'DRIVER' ? false : true,
-  }),
+      login: (user) => set({
+        currentUser: user,
+        currentRole: user.role,
+        isLoggedIn: true,
+        isVerified: true,
+        currentView: user.role === 'ADMIN' ? 'admin-dashboard' : 'home',
+        isOnline: user.role === 'DRIVER' ? false : true,
+      }),
 
-  logout: () => set({
-    currentUser: null,
-    currentRole: null,
-    isLoggedIn: false,
-    isVerified: false,
-    currentView: 'login',
-    previousView: null,
-    isOnline: false,
-    activeRide: null,
-    incomingRides: [],
-  }),
+      logout: () => set({
+        currentUser: null,
+        currentRole: null,
+        isLoggedIn: false,
+        isVerified: false,
+        currentView: 'login',
+        previousView: null,
+        isOnline: false,
+        activeRide: null,
+        incomingRides: [],
+      }),
 
-  setRole: (role) => set({ currentRole: role }),
+      setRole: (role) => set({ currentRole: role }),
 
-  setVerified: (verified) => set({ isVerified: verified }),
+      setVerified: (verified) => set({ isVerified: verified }),
 
-  setView: (view) => set((state) => ({
-    previousView: state.currentView,
-    currentView: view,
-  })),
+      setView: (view) => set((state) => ({
+        previousView: state.currentView,
+        currentView: view,
+      })),
 
-  goBack: () => set((state) => ({
-    currentView: state.previousView || 'home',
-    previousView: null,
-  })),
+      goBack: () => set((state) => ({
+        currentView: state.previousView || 'home',
+        previousView: null,
+      })),
 
-  setOnline: (online) => set({ isOnline: online }),
+      setOnline: (online) => set({ isOnline: online }),
 
-  setActiveRide: (ride) => set({ activeRide: ride }),
+      setActiveRide: (ride) => set({ activeRide: ride }),
 
-  setIncomingRides: (rides) => set({ incomingRides: rides }),
+      setIncomingRides: (rides) => set({ incomingRides: rides }),
 
-  addIncomingRide: (ride) => set((state) => ({
-    incomingRides: [ride, ...state.incomingRides],
-  })),
+      addIncomingRide: (ride) => set((state) => ({
+        incomingRides: [ride, ...state.incomingRides],
+      })),
 
-  removeIncomingRide: (rideId) => set((state) => ({
-    incomingRides: state.incomingRides.filter(r => r.id !== rideId),
-  })),
+      removeIncomingRide: (rideId) => set((state) => ({
+        incomingRides: state.incomingRides.filter(r => r.id !== rideId),
+      })),
 
-  addNotification: (notification) => set((state) => ({
-    notifications: [notification, ...state.notifications],
-  })),
+      addNotification: (notification) => set((state) => ({
+        notifications: [notification, ...state.notifications],
+      })),
 
-  markNotificationRead: (id) => set((state) => ({
-    notifications: state.notifications.map(n =>
-      n.id === id ? { ...n, read: true } : n
-    ),
-  })),
+      markNotificationRead: (id) => set((state) => ({
+        notifications: state.notifications.map(n =>
+          n.id === id ? { ...n, read: true } : n
+        ),
+      })),
 
-  updateWalletBalance: (balance) => set((state) => ({
-    currentUser: state.currentUser ? { ...state.currentUser, walletBalance: balance } : null,
-  })),
-}))
+      updateWalletBalance: (balance) => set((state) => ({
+        currentUser: state.currentUser ? { ...state.currentUser, walletBalance: balance } : null,
+      })),
+
+      updateCurrentUser: (updates) => set((state) => ({
+        currentUser: state.currentUser ? { ...state.currentUser, ...updates } : null,
+        currentRole: updates.role ? (updates.role as Role) : state.currentRole,
+      })),
+    }),
+    {
+      name: 'gramyatri-storage', // localStorage key
+      partialize: (state) => ({
+        // Only persist auth-related state, not temporary UI state
+        currentUser: state.currentUser,
+        currentRole: state.currentRole,
+        isLoggedIn: state.isLoggedIn,
+        isVerified: state.isVerified,
+      }),
+    }
+  )
+)
