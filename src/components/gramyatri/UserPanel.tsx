@@ -13,7 +13,7 @@ import {
   Radio, TrendingUp, ChevronDown, Edit3, Eye, EyeOff,
   PhoneCall, Truck, Bike, Locate, Route, Timer,
   Share2, Info, CreditCard, CircleDot, Move, ExternalLink,
-  ThumbsUp, Heart, Copy, Globe
+  ThumbsUp, Heart, Copy
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -40,9 +40,12 @@ import {
   getNearbyDrivers,
   updateRide,
   getOffers,
-  getPaymentSettings,
+  searchLocations,
+  reverseGeocode,
+  calculateRouteDistance,
+  fetchFareConfig,
 } from '@/lib/api'
-import type { PaymentSettings } from '@/lib/api'
+import type { LocationResult } from '@/lib/api'
 import { toast } from 'sonner'
 import { useSocket } from '@/lib/socket'
 import SharedRideCard from './SharedRideCard'
@@ -93,11 +96,11 @@ function mapApiRideToRide(apiRide: Record<string, unknown>): Ride {
 }
 
 // Time-based greeting
-function getGreeting(lang: Lang): string {
+function getGreeting(): string {
   const h = new Date().getHours()
-  if (h < 12) return lang === 'as' ? 'সুপ্ৰভাত' : 'Good Morning'
-  if (h < 17) return lang === 'as' ? 'শুভ দুপৰীয়া' : 'Good Afternoon'
-  return lang === 'as' ? 'শুভ সন্ধিয়া' : 'Good Evening'
+  if (h < 12) return 'Good Morning'
+  if (h < 17) return 'Good Afternoon'
+  return 'Good Evening'
 }
 
 // Format seconds to mm:ss
@@ -107,7 +110,7 @@ function formatDuration(seconds: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 }
 
-// Nearby driver data
+// Mock nearby driver data
 interface NearbyDriverInfo {
   id: string
   name: string
@@ -121,200 +124,24 @@ interface NearbyDriverInfo {
   lng: number
 }
 
-// Location suggestions — Lanka, Hojai & surrounding areas (Assam)
-const LOCATION_SUGGESTIONS = [
-  // Lanka town internal locations
-  'Lanka Bazar', 'Lanka Main Bazar', 'Lanka Railway Station', 'Lanka Bus Stand',
-  'Lanka Public School', 'Lanka College', 'Lanka Hospital', 'Lanka Police Station',
-  'Lanka Court', 'Lanka Town Hall', 'Lanka Post Office', 'Lanka ATM',
-  'Lanka Petrol Pump', 'Lanka Mosque', 'Lanka Mandir', 'Lanka PWD Office',
-  // Lanka area sub-localities
-  'Azarbari', 'Jaysagar Lanka', 'Nowpara Lanka', 'Pub Lanka', 'Paschim Lanka',
-  'Raha Lanka Road', 'Lanka Tiniali', 'Lanka Chariali', 'Lanka Gaon',
-  'Lanka Ward No 1', 'Lanka Ward No 2', 'Lanka Ward No 3',
-  // Hojai district
-  'Hojai Bus Stand', 'Hojai Railway Station', 'Hojai Town', 'Hojai Bazar',
-  'Hojai Court', 'Hojai Hospital', 'Hojai Police Station', 'Hojai College',
-  'Hojai Tiniali', 'Hojai Chariali', 'Doboka', 'Sankardev Nagar Hojai',
-  // Nearby important stops
-  'Nagaon Town', 'Nagaon Railway Station', 'Nagaon Bus Stand',
-  'Nagaon Medical College', 'Lumding Junction', 'Lumding Railway Station',
-  'Chaparmukh', 'Raha', 'Jagiroad', 'Morigaon',
-  // Major cities
-  'Guwahati Paltan Bazar', 'Guwahati Railway Station', 'Guwahati Airport',
-  'Guwahati ISBT', 'Dispur', 'Silchar', 'Diphu', 'Diphu Railway Station',
-  'Kaziranga National Park', 'Jorhat', 'Tezpur',
+const MOCK_NEARBY_DRIVERS: NearbyDriverInfo[] = [
+  { id: 'd1', name: 'Raju Bhai', vehicleType: 'TEMPO', vehicleNumber: 'AS-01-AB-1234', rating: 4.5, eta: 3, distance: 1.2, totalRides: 342, lat: 26.15, lng: 91.74 },
+  { id: 'd2', name: 'Mohan Das', vehicleType: 'AUTO', vehicleNumber: 'AS-01-CD-5678', rating: 4.2, eta: 5, distance: 2.1, totalRides: 218, lat: 26.14, lng: 91.75 },
+  { id: 'd3', name: 'Anil Kumar', vehicleType: 'E_RICKSHAW', vehicleNumber: 'AS-01-EF-9012', rating: 4.8, eta: 2, distance: 0.8, totalRides: 567, lat: 26.16, lng: 91.73 },
+  { id: 'd4', name: 'Sanjay Sarma', vehicleType: 'TEMPO', vehicleNumber: 'AS-01-GH-3456', rating: 3.9, eta: 7, distance: 3.5, totalRides: 89, lat: 26.13, lng: 91.72 },
+  { id: 'd5', name: 'Dilip Borah', vehicleType: 'AUTO', vehicleNumber: 'AS-01-IJ-7890', rating: 4.6, eta: 4, distance: 1.8, totalRides: 431, lat: 26.155, lng: 91.745 },
 ]
 
-// Local area known coordinates for precise geocoding (Lanka area)
-const LOCAL_KNOWN_COORDS: Record<string, { lat: number; lng: number }> = {
-  'lanka bazar': { lat: 26.0194, lng: 92.9864 },
-  'lanka main bazar': { lat: 26.0194, lng: 92.9864 },
-  'lanka railway station': { lat: 26.0186, lng: 92.9871 },
-  'lanka bus stand': { lat: 26.0198, lng: 92.9860 },
-  'lanka public school': { lat: 26.0201, lng: 92.9855 },
-  'lanka hospital': { lat: 26.0205, lng: 92.9870 },
-  'lanka police station': { lat: 26.0190, lng: 92.9862 },
-  'lanka post office': { lat: 26.0196, lng: 92.9858 },
-  'azarbari': { lat: 26.0220, lng: 92.9890 },
-  'jaysagar lanka': { lat: 26.0175, lng: 92.9845 },
-  'nowpara lanka': { lat: 26.0210, lng: 92.9880 },
-  'lanka tiniali': { lat: 26.0188, lng: 92.9852 },
-  'lanka chariali': { lat: 26.0192, lng: 92.9857 },
-  'hojai bus stand': { lat: 26.0028, lng: 92.8560 },
-  'hojai railway station': { lat: 26.0020, lng: 92.8552 },
-  'hojai town': { lat: 26.0025, lng: 92.8558 },
-  'hojai bazar': { lat: 26.0030, lng: 92.8562 },
-  'lumding railway station': { lat: 25.7567, lng: 93.1746 },
-  'lumding junction': { lat: 25.7567, lng: 93.1746 },
-}
-
-// GPS coordinate zones — GPS দিলে এই table থেকে সরাসরি এলাকার নাম বের হবে
-// Nominatim-এর উপর নির্ভর না করে নিজেই detect করবে
-const GPS_ZONES: Array<{ name: string; lat: number; lng: number; radius: number }> = [
-  // Lanka town core
-  { name: 'Lanka Main Bazar', lat: 26.0194, lng: 92.9864, radius: 200 },
-  { name: 'Lanka Railway Station', lat: 26.0186, lng: 92.9871, radius: 250 },
-  { name: 'Lanka Bus Stand', lat: 26.0198, lng: 92.9860, radius: 180 },
-  { name: 'Lanka Public School', lat: 26.0201, lng: 92.9855, radius: 200 },
-  { name: 'Lanka Hospital', lat: 26.0205, lng: 92.9870, radius: 220 },
-  { name: 'Lanka Police Station', lat: 26.0190, lng: 92.9862, radius: 150 },
-  { name: 'Lanka Post Office', lat: 26.0196, lng: 92.9858, radius: 150 },
-  { name: 'Lanka Court', lat: 26.0200, lng: 92.9850, radius: 180 },
-  { name: 'Lanka College', lat: 26.0208, lng: 92.9845, radius: 250 },
-  { name: 'Lanka PWD Office', lat: 26.0185, lng: 92.9855, radius: 150 },
-  // Lanka sub-localities (broader zones)
-  { name: 'Azarbari', lat: 26.0220, lng: 92.9890, radius: 500 },
-  { name: 'Jaysagar Lanka', lat: 26.0175, lng: 92.9845, radius: 450 },
-  { name: 'Nowpara Lanka', lat: 26.0210, lng: 92.9880, radius: 450 },
-  { name: 'Pub Lanka', lat: 26.0215, lng: 92.9900, radius: 500 },
-  { name: 'Paschim Lanka', lat: 26.0180, lng: 92.9830, radius: 500 },
-  { name: 'Lanka Tiniali', lat: 26.0188, lng: 92.9852, radius: 200 },
-  { name: 'Lanka Chariali', lat: 26.0192, lng: 92.9857, radius: 200 },
-  { name: 'Lanka Gaon', lat: 26.0170, lng: 92.9840, radius: 600 },
-  { name: 'Raha Lanka Road', lat: 26.0160, lng: 92.9820, radius: 600 },
-  // Hojai
-  { name: 'Hojai Bus Stand', lat: 26.0028, lng: 92.8560, radius: 250 },
-  { name: 'Hojai Railway Station', lat: 26.0020, lng: 92.8552, radius: 300 },
-  { name: 'Hojai Bazar', lat: 26.0030, lng: 92.8562, radius: 350 },
-  { name: 'Hojai Hospital', lat: 26.0035, lng: 92.8570, radius: 250 },
-  { name: 'Hojai Court', lat: 26.0025, lng: 92.8545, radius: 250 },
-  { name: 'Hojai College', lat: 26.0040, lng: 92.8580, radius: 300 },
-  // Nearby towns
-  { name: 'Lumding Railway Station', lat: 25.7567, lng: 93.1746, radius: 400 },
-  { name: 'Nagaon Town', lat: 26.3466, lng: 92.6843, radius: 800 },
-  { name: 'Nagaon Railway Station', lat: 26.3500, lng: 92.6900, radius: 400 },
-  { name: 'Raha', lat: 26.2167, lng: 92.8333, radius: 700 },
-  { name: 'Chaparmukh', lat: 26.1833, lng: 92.6000, radius: 700 },
-  { name: 'Jagiroad', lat: 26.2833, lng: 92.1833, radius: 700 },
-  { name: 'Doboka', lat: 25.9500, lng: 92.8000, radius: 700 },
+// Popular local landmarks for quick selection (Lanka area, Assam)
+const POPULAR_PLACES = [
+  { name: 'Lanka Bazar', lat: 25.933, lng: 92.943 },
+  { name: 'Lanka Railway Station', lat: 25.928, lng: 92.940 },
+  { name: 'Lanka Town', lat: 25.935, lng: 92.945 },
+  { name: 'Hojai Bus Stand', lat: 25.980, lng: 92.870 },
+  { name: 'Hojai Railway Station', lat: 25.978, lng: 92.865 },
+  { name: 'Nagaon Town', lat: 26.355, lng: 92.685 },
+  { name: 'Diphu', lat: 25.870, lng: 93.430 },
 ]
-
-// GPS coordinates দিলে haversine formula দিয়ে সবচেয়ে কাছের zone detect করে নাম দেয়
-function detectZoneFromCoords(lat: number, lng: number): string | null {
-  const toRad = (d: number) => d * Math.PI / 180
-  const R = 6371000
-  let best: { name: string; dist: number } | null = null
-  for (const zone of GPS_ZONES) {
-    const dLat = toRad(lat - zone.lat)
-    const dLng = toRad(lng - zone.lng)
-    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat)) * Math.cos(toRad(zone.lat)) * Math.sin(dLng/2)**2
-    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    if (dist <= zone.radius) {
-      if (!best || dist < best.dist) best = { name: zone.name, dist }
-    }
-  }
-  return best ? best.name : null
-}
-
-// Bilingual translations — English & Assamese
-type Lang = 'en' | 'as'
-const T: Record<string, Record<Lang, string>> = {
-  'whereTo': { en: 'Where to today?', as: 'আজি ক\'লৈ যাব?' },
-  'bookRide': { en: 'Book Ride', as: 'ৰাইড বুক কৰক' },
-  'sharedTempo': { en: 'Shared Tempo', as: 'শ্বেয়াৰ্ড টেম্প' },
-  'wallet': { en: 'Wallet', as: 'ৱালেট' },
-  'history': { en: 'History', as: 'ইতিহাস' },
-  'pickup': { en: 'Pickup location', as: 'পিকআপ ঠিকনা' },
-  'drop': { en: 'Drop location', as: 'ড্ৰপ ঠিকনা' },
-  'searchRides': { en: 'Search Rides', as: 'ৰাইড সন্ধান কৰক' },
-  'selectVehicle': { en: 'Select Vehicle', as: 'বাহন বাছনি কৰক' },
-  'nearbyDrivers': { en: 'Nearby Drivers', as: 'ওচৰৰ চালক' },
-  'noDrivers': { en: 'No drivers nearby', as: 'ওচৰত কোনো চালক নাই' },
-  'fareEstimate': { en: 'Fare Estimate', as: 'ভাড়া অনুমান' },
-  'applyOffer': { en: 'Apply Offer', as: 'অফাৰ প্ৰয়োগ কৰক' },
-  'payCash': { en: 'Pay with Cash', as: 'নগদত দিয়ক' },
-  'payWallet': { en: 'Pay with Wallet', as: 'ৱালেটেৰে দিয়ক' },
-  'bookNow': { en: 'Book Now', as: 'এতিয়া বুক কৰক' },
-  'addMoney': { en: 'Add Money', as: 'পইচা যোগ কৰক' },
-  'walletBalance': { en: 'Wallet Balance', as: 'ৱালেট বেলেন্স' },
-  'transactions': { en: 'Transactions', as: 'লেনদেন' },
-  'noTransactions': { en: 'No transactions yet', as: 'এতিয়ালৈকে কোনো লেনদেন নাই' },
-  'rideHistory': { en: 'Ride History', as: 'ৰাইড ইতিহাস' },
-  'noRides': { en: 'No rides yet', as: 'এতিয়ালৈকে কোনো ৰাইড নাই' },
-  'profile': { en: 'Profile', as: 'প্ৰ\u0027ফাইল' },
-  'totalRides': { en: 'Total Rides', as: 'মুঠ ৰাইড' },
-  'avgRating': { en: 'Avg Rating', as: 'গড় ৰেটিং' },
-  'notifications': { en: 'Notifications', as: 'জাননী' },
-  'noNotifications': { en: 'No notifications', as: 'কোনো জাননী নাই' },
-  'about': { en: 'About', as: 'বিষয়ে' },
-  'help': { en: 'Help & Support', as: 'সাহায্য আৰু সমৰ্থন' },
-  'logout': { en: 'Logout', as: 'লগআউট' },
-  'emergency': { en: 'Emergency SOS', as: 'জৰুৰীকালীন SOS' },
-  'cancel': { en: 'Cancel', as: 'বাতিল কৰক' },
-  'confirm': { en: 'Confirm', as: 'নিশ্চিত কৰক' },
-  'save': { en: 'Save', as: 'সংৰক্ষণ কৰক' },
-  'goodMorning': { en: 'Good Morning', as: 'সুপ্ৰভাত' },
-  'goodAfternoon': { en: 'Good Afternoon', as: 'শুভ দুপৰীয়া' },
-  'goodEvening': { en: 'Good Evening', as: 'শুভ সন্ধিয়া' },
-  'searchingDriver': { en: 'Searching for Driver', as: 'চালক সন্ধান কৰি আছে' },
-  'driverFound': { en: 'Driver Found - Arriving', as: 'চালক পোৱা গ\'ল - আহি আছে' },
-  'rideInProgress': { en: 'Ride in Progress', as: 'ৰাইড চলি আছে' },
-  'rideCompleted': { en: 'Ride Completed', as: 'ৰাইড সম্পূৰ্ণ হ\'ল' },
-  'rideCancelled': { en: 'Ride Cancelled', as: 'ৰাইড বাতিল হ\'ল' },
-  'rateDriver': { en: 'Rate your ride', as: 'আপোনাৰ ৰাইড ৰেট কৰক' },
-  'callDriver': { en: 'Call Driver', as: 'চালকক কল কৰক' },
-  'cancelRide': { en: 'Cancel Ride', as: 'ৰাইড বাতিল কৰক' },
-  'shareRide': { en: 'Share Ride', as: 'ৰাইড শ্বেয়াৰ কৰক' },
-  'darkMode': { en: 'Dark Mode', as: 'ডাৰ্ক মোড' },
-  'language': { en: 'অসমীয়া / English', as: 'English / অসমীয়া' },
-  'detectLocation': { en: 'Detect Location', as: 'অৱস্থান চিনাক্ত কৰক' },
-  'distance': { en: 'Distance', as: 'দূৰত্ব' },
-  'fare': { en: 'Fare', as: 'ভাড়া' },
-  'baseFare': { en: 'Base Fare', as: 'মৌলিক ভাড়া' },
-  'perKm': { en: 'per km', as: 'প্ৰতি কি.মি.' },
-  'off': { en: 'off', as: 'ৰেহাই' },
-  'enterAmount': { en: 'Enter amount (₹)', as: 'পৰিমাণ লিখক (₹)' },
-  'quickAdd': { en: 'Quick Add', as: 'দ্ৰুত যোগ' },
-  'passenger': { en: 'Passenger', as: 'যাত্ৰী' },
-  'verified': { en: 'Verified', as: 'যাচাইকৃত' },
-  'memberSince': { en: 'Member since', as: 'সদস্যৰ পৰা' },
-  'editProfile': { en: 'Edit Profile', as: 'প্ৰ\u0027ফাইল সম্পাদনা' },
-  'settings': { en: 'Settings', as: 'ছেটিংছ' },
-  'allRides': { en: 'All', as: 'সকলো' },
-  'completed': { en: 'Completed', as: 'সম্পূৰ্ণ' },
-  'cancelled': { en: 'Cancelled', as: 'বাতিল' },
-  'allNotifs': { en: 'All', as: 'সকলো' },
-  'rideNotifs': { en: 'Ride', as: 'ৰাইড' },
-  'offerNotifs': { en: 'Offer', as: 'অফাৰ' },
-  'systemNotifs': { en: 'System', as: 'চিষ্টেম' },
-  'recentRides': { en: 'Recent Rides', as: 'শেহতীয়া ৰাইড' },
-  'activeOffers': { en: 'Active Offers', as: 'সক্ৰিয় অফাৰ' },
-  'sendSOS': { en: 'Send SOS', as: 'SOS পঠিয়াওক' },
-  'sosMessage': { en: 'Emergency message (optional)', as: 'জৰুৰীকালীন বাৰ্তা (ঐচ্ছিক)' },
-  'sosSent': { en: 'Emergency SOS sent! Help is on the way.', as: 'জৰুৰীকালীন SOS পঠিয়াওৱা হ\'ল! সাহায্য আহি আছে।' },
-  'offerApplied': { en: 'Offer applied! You save', as: 'অফাৰ প্ৰয়োগ হ\'ল! আপুনি বচালে' },
-  'invalidOffer': { en: 'Invalid or expired offer code', as: 'অবৈধ বা অকালম্যাদ অফাৰ ক\u0027ড' },
-  'walletUpdated': { en: 'Wallet updated', as: 'ৱালেট আপডেট হ\'ল' },
-  'completePayment': { en: 'Complete Payment First', as: 'প্ৰথমে পেমেণ্ট সম্পূৰ্ণ কৰক' },
-  'payFirst': { en: 'Pay ₹{{amount}} via UPI first. Money will be added after you confirm.', as: 'প্ৰথমে UPI যোগে ₹{{amount}} দিয়ক। নিশ্চিত কৰাৰ পাছত পইচা যোগ হ\'ব।' },
-  'iConfirmPayment': { en: 'I have completed the UPI payment of ₹{{amount}}', as: 'মই UPI যোগে ₹{{amount}} পেমেণ্ট সম্পূৰ্ণ কৰিছো' },
-  'confirmPayment': { en: 'Confirm Payment', as: 'পেমেণ্ট নিশ্চিত কৰক' },
-  'amountToPay': { en: 'Amount to Pay', as: 'পেমেণ্ট কৰিব লগা পৰিমাণ' },
-  'payToUpi': { en: 'Pay to UPI ID', as: 'UPI ID লৈ দিয়ক' },
-  'paymentInstructions': { en: 'Payment Instructions', as: 'পেমেণ্ট নিৰ্দেশনা' },
-  'scanQR': { en: 'Scan QR code to pay', as: 'পেমেণ্ট কৰিবলৈ QR ক\u0027ড স্কেন কৰক' },
-}
 
 // Ride status progression for live tracking
 const RIDE_STATUS_FLOW = ['SEARCHING', 'ACCEPTED', 'IN_PROGRESS', 'COMPLETED'] as const
@@ -337,150 +164,13 @@ interface UserNotification {
   createdAt: string
 }
 
-// No mock notifications — only real notifications from the database
-const EMPTY_NOTIFICATIONS: UserNotification[] = []
-
-// MapPickerScript — Leaflet map loader, pin drag করলে address reverse geocode করে
-function MapPickerScript({
-  onReady,
-  initialLat,
-  initialLng,
-}: {
-  onReady: (lat: number, lng: number, addr: string) => void
-  initialLat: number
-  initialLng: number
-}) {
-  const initialized = useRef(false)
-  const onReadyRef = useRef(onReady)
-  useEffect(() => { onReadyRef.current = onReady }, [onReady])
-
-  useEffect(() => {
-    if (initialized.current) return
-    initialized.current = true
-
-    const loadLeaflet = () => {
-      return new Promise<void>((resolve) => {
-        if ((window as unknown as Record<string, unknown>)['L']) { resolve(); return }
-
-        // Load Leaflet CSS
-        const css = document.createElement('link')
-        css.rel = 'stylesheet'
-        css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-        document.head.appendChild(css)
-
-        // Load Leaflet JS
-        const script = document.createElement('script')
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-        script.onload = () => resolve()
-        document.head.appendChild(script)
-      })
-    }
-
-    const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
-      try {
-        // Zone detect আগে চেষ্টা করো
-        const zone = detectZoneFromCoords(lat, lng)
-        if (zone) return zone
-
-        // তারপর Nominatim
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=as,en`,
-          { headers: { 'User-Agent': 'GramYatri/2.0' } }
-        )
-        if (!res.ok) return ''
-        const data = await res.json()
-        if (data.error) return ''
-        const addr = data.address || {}
-        const parts: string[] = []
-        const micro = addr.neighbourhood || addr.quarter || addr.hamlet || addr.residential
-        if (micro) parts.push(micro)
-        const village = addr.village || addr.suburb || addr.town
-        if (village && !parts.includes(village)) parts.push(village)
-        if (parts.length === 0) {
-          const road = addr.road || addr.pedestrian
-          if (road) parts.push(road)
-        }
-        return parts.slice(0, 2).join(', ')
-      } catch { return '' }
-    }
-
-    loadLeaflet().then(() => {
-      const L = (window as unknown as Record<string, unknown>)['L'] as {
-        map: (id: string, opts: Record<string, unknown>) => {
-          setView: (latlng: [number, number], zoom: number) => void
-          on: (event: string, fn: (e: { latlng: { lat: number; lng: number } }) => void) => void
-          remove: () => void
-        }
-        tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (map: unknown) => void }
-        marker: (latlng: [number, number], opts: Record<string, unknown>) => {
-          addTo: (map: unknown) => unknown
-          setLatLng: (latlng: [number, number]) => void
-        }
-        icon: (opts: Record<string, unknown>) => unknown
-        DivIcon: new (opts: Record<string, unknown>) => unknown
-      }
-
-      const container = document.getElementById('gramyatri-map-picker')
-      if (!container) return
-
-      const map = L.map('gramyatri-map-picker', { zoomControl: true })
-      map.setView([initialLat, initialLng], 17)
-
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap',
-        maxZoom: 19,
-      }).addTo(map)
-
-      // Custom red pin icon
-      const pinIcon = new L.DivIcon({
-        className: '',
-        html: `<div style="
-          width:32px;height:40px;
-          background:#ef4444;
-          border-radius:50% 50% 50% 0;
-          transform:rotate(-45deg);
-          border:3px solid #fff;
-          box-shadow:0 2px 8px rgba(0,0,0,0.4);
-          position:relative;
-        "><div style="
-          position:absolute;top:50%;left:50%;
-          transform:translate(-50%,-50%) rotate(45deg);
-          width:10px;height:10px;
-          background:#fff;border-radius:50%;
-        "></div></div>`,
-        iconSize: [32, 40],
-        iconAnchor: [16, 40],
-      })
-
-      const marker = L.marker([initialLat, initialLng], { icon: pinIcon, draggable: true } as Record<string, unknown>).addTo(map)
-
-      // Initial address
-      reverseGeocode(initialLat, initialLng).then(addr => onReadyRef.current(initialLat, initialLng, addr))
-
-      // Map tap — pin move করে
-      map.on('click', async (e) => {
-        const { lat, lng } = e.latlng
-        marker.setLatLng([lat, lng])
-        const addr = await reverseGeocode(lat, lng)
-        onReadyRef.current(lat, lng, addr)
-      })
-
-      // Pin drag করলেও update হবে
-      const markerEl = marker as unknown as {
-        on: (event: string, fn: () => void) => void
-        getLatLng: () => { lat: number; lng: number }
-      }
-      markerEl.on('dragend', async () => {
-        const { lat, lng } = markerEl.getLatLng()
-        const addr = await reverseGeocode(lat, lng)
-        onReadyRef.current(lat, lng, addr)
-      })
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // intentionally empty — map init runs once only
-
-  return null
-}
+const MOCK_NOTIFICATIONS: UserNotification[] = [
+  { id: 'n1', title: 'Ride Completed', message: 'Your ride from Lanka to Hojai has been completed. Rate your driver!', type: 'ride', read: false, createdAt: new Date().toISOString() },
+  { id: 'n2', title: '50% Off Offer!', message: 'Use code GRAM50 for 50% off on your next ride. Valid till March 31!', type: 'offer', read: false, createdAt: new Date(Date.now() - 3600000).toISOString() },
+  { id: 'n3', title: 'App Updated', message: 'GramYatri v2.0 is here! Check out shared tempo rides and more.', type: 'system', read: true, createdAt: new Date(Date.now() - 86400000).toISOString() },
+  { id: 'n4', title: 'Wallet Credited', message: '₹200 has been added to your wallet successfully.', type: 'system', read: true, createdAt: new Date(Date.now() - 172800000).toISOString() },
+  { id: 'n5', title: 'Driver Arriving', message: 'Your driver Raju is arriving in 3 minutes!', type: 'ride', read: false, createdAt: new Date(Date.now() - 600000).toISOString() },
+]
 
 export default function UserPanel() {
   const { currentUser, activeRide, setActiveRide, logout, updateWalletBalance, notifications, markNotificationRead } = useAppStore()
@@ -493,10 +183,7 @@ export default function UserPanel() {
   const [vehicleType, setVehicleType] = useState('TEMPO')
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'WALLET'>('CASH')
   const [offerCode, setOfferCode] = useState('')
-  const [distance, setDistance] = useState(0)
-  const [distanceLoading, setDistanceLoading] = useState(false)
-  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null)
-  const [dropCoords, setDropCoords] = useState<{ lat: number; lng: number } | null>(null)
+  const [distance, setDistance] = useState(5)
   const [searching, setSearching] = useState(false)
   const [addMoneyAmount, setAddMoneyAmount] = useState('')
   const [showEmergencyDialog, setShowEmergencyDialog] = useState(false)
@@ -511,28 +198,6 @@ export default function UserPanel() {
     return false
   })
 
-  // Language state — persisted in localStorage
-  const [lang, setLang] = useState<Lang>(() => {
-    if (typeof localStorage !== 'undefined') {
-      return (localStorage.getItem('gramyatri-lang') as Lang) || 'as'
-    }
-    return 'as'
-  })
-  const t = (key: string, replacements?: Record<string, string | number>): string => {
-    let text = T[key]?.[lang] || T[key]?.en || key
-    if (replacements) {
-      Object.entries(replacements).forEach(([k, v]) => {
-        text = text.replace(`{{${k}}}`, String(v))
-      })
-    }
-    return text
-  }
-  const toggleLang = () => {
-    const newLang = lang === 'as' ? 'en' : 'as'
-    setLang(newLang)
-    localStorage.setItem('gramyatri-lang', newLang)
-  }
-
   // --- Real data state ---
   const [sharedRides, setSharedRides] = useState<Ride[]>([])
   const [sharedRidesLoading, setSharedRidesLoading] = useState(false)
@@ -541,11 +206,7 @@ export default function UserPanel() {
   const [rideHistoryLoading, setRideHistoryLoading] = useState(false)
   const [rideFilter, setRideFilter] = useState<'ALL' | 'COMPLETED' | 'CANCELLED'>('ALL')
 
-  const [walletBalance, setWalletBalance] = useState<number>(0)
-  const [userLat, setUserLat] = useState(26.15)
-  const [userLng, setUserLng] = useState(91.74)
-  const [showAboutDialog, setShowAboutDialog] = useState(false)
-  const [showHelpDialog, setShowHelpDialog] = useState(false)
+  const [walletBalance, setWalletBalance] = useState<number>(currentUser?.walletBalance || 0)
   const [walletLoading, setWalletLoading] = useState(false)
   const [walletTransactions, setWalletTransactions] = useState<Array<Record<string, unknown>>>([])
   const [walletTransactionsLoading, setWalletTransactionsLoading] = useState(false)
@@ -562,18 +223,31 @@ export default function UserPanel() {
   const [nearbyDriversLoading, setNearbyDriversLoading] = useState(false)
   const [showBookingConfirm, setShowBookingConfirm] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
-  const [userNotifications, setUserNotifications] = useState<UserNotification[]>(EMPTY_NOTIFICATIONS)
+  const [userNotifications, setUserNotifications] = useState<UserNotification[]>(MOCK_NOTIFICATIONS)
   const [notifFilter, setNotifFilter] = useState<'all' | 'ride' | 'offer' | 'system'>('all')
   const [showProfileEdit, setShowProfileEdit] = useState(false)
   const [editName, setEditName] = useState(currentUser?.name || '')
-  const [pickupSuggestions, setPickupSuggestions] = useState<string[]>([])
-  const [dropSuggestions, setDropSuggestions] = useState<string[]>([])
+  // Location search state (real geocoding)
+  const [pickupSuggestions, setPickupSuggestions] = useState<LocationResult[]>([])
+  const [dropSuggestions, setDropSuggestions] = useState<LocationResult[]>([])
   const [showPickupSuggestions, setShowPickupSuggestions] = useState(false)
   const [showDropSuggestions, setShowDropSuggestions] = useState(false)
   const [gpsDetecting, setGpsDetecting] = useState(false)
-  const [showMapPicker, setShowMapPicker] = useState(false)
-  const [mapPickerTarget, setMapPickerTarget] = useState<'pickup' | 'drop'>('pickup')
-  const [mapPickerAddress, setMapPickerAddress] = useState('')
+  const [pickupLat, setPickupLat] = useState<number | null>(null)
+  const [pickupLng, setPickupLng] = useState<number | null>(null)
+  const [dropLat, setDropLat] = useState<number | null>(null)
+  const [dropLng, setDropLng] = useState<number | null>(null)
+  const [currentLat, setCurrentLat] = useState<number | null>(null)
+  const [currentLng, setCurrentLng] = useState<number | null>(null)
+  const [routeDistance, setRouteDistance] = useState<number | null>(null)
+  const [routeDuration, setRouteDuration] = useState<number | null>(null)
+  const [calculatingRoute, setCalculatingRoute] = useState(false)
+  const [fareConfig, setFareConfig] = useState<Record<string, { base: number; perKm: number }>>({
+    TEMPO: { base: 15, perKm: 8 },
+    AUTO: { base: 20, perKm: 12 },
+    E_RICKSHAW: { base: 10, perKm: 6 },
+  })
+  const [locationSearching, setLocationSearching] = useState<'pickup' | 'drop' | null>(null)
   const [liveTrackingEta, setLiveTrackingEta] = useState(3)
   const [driverProgress, setDriverProgress] = useState(25)
   const [trackingStatusIndex, setTrackingStatusIndex] = useState(0)
@@ -589,155 +263,16 @@ export default function UserPanel() {
   const [tipAmount, setTipAmount] = useState(0)
   const [completedRide, setCompletedRide] = useState<Ride | null>(null)
 
-  // UPI Payment settings
-  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({ upiId: '', paymentQrUrl: '', paymentInstructions: '', upiPaymentEnabled: false })
-  const [serviceMaxRideDistance, setServiceMaxRideDistance] = useState(50)
-  const [showUpiPayment, setShowUpiPayment] = useState(false)
-  const [upiPaid, setUpiPaid] = useState(false)
-
   // Refs
   const pickupRef = useRef<HTMLDivElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
   const rideTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fare = calculateFare(vehicleType, distance || 1)
+  // Use auto-calculated route distance if available, otherwise manual slider distance
+  const effectiveDistance = routeDistance !== null ? routeDistance : distance
+  const fare = calculateFare(vehicleType, effectiveDistance, fareConfig)
   const discountedFare = offerApplied ? Math.max(0, fare.total - offerDiscount) : fare.total
-  const perKmRate = vehicleType === 'TEMPO' ? 8 : vehicleType === 'AUTO' ? 12 : 6
-
-  // ─── OSRM Distance Calculation ────────────────────────────────────
-  const calculateRouteDistance = useCallback(async (pCoords: { lat: number; lng: number }, dCoords: { lat: number; lng: number }) => {
-    setDistanceLoading(true)
-    try {
-      // Use OSRM (Open Source Routing Machine) for real road distance
-      const res = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${pCoords.lng},${pCoords.lat};${dCoords.lng},${dCoords.lat}?overview=false`,
-        { headers: { 'User-Agent': 'GramYatri/2.0' } }
-      )
-      if (res.ok) {
-        const data = await res.json()
-        if (data.routes && data.routes.length > 0) {
-          const distKm = Math.round((data.routes[0].distance / 1000) * 10) / 10 // round to 1 decimal
-          setDistance(distKm)
-          return
-        }
-      }
-      // Fallback: Haversine straight-line distance * 1.3 (road factor)
-      const R = 6371
-      const dLat = (dCoords.lat - pCoords.lat) * Math.PI / 180
-      const dLon = (dCoords.lng - pCoords.lng) * Math.PI / 180
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(pCoords.lat * Math.PI / 180) * Math.cos(dCoords.lat * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2)
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-      const straightLine = R * c
-      setDistance(Math.round(straightLine * 1.3 * 10) / 10)
-    } catch {
-      // Fallback: Haversine
-      const R = 6371
-      const dLat = (dCoords.lat - pCoords.lat) * Math.PI / 180
-      const dLon = (dCoords.lng - pCoords.lng) * Math.PI / 180
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(pCoords.lat * Math.PI / 180) * Math.cos(dCoords.lat * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2)
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-      const straightLine = R * c
-      setDistance(Math.round(straightLine * 1.3 * 10) / 10)
-    } finally {
-      setDistanceLoading(false)
-    }
-  }, [])
-
-  // Geocode a location name to coordinates using Nominatim
-  const geocodeLocation = useCallback(async (locationName: string): Promise<{ lat: number; lng: number } | null> => {
-    const cleanName = locationName.replace('(GPS)', '').trim()
-
-    // 1. Check local known coordinates first (instant, no network needed)
-    const localKey = cleanName.toLowerCase()
-    if (LOCAL_KNOWN_COORDS[localKey]) {
-      return LOCAL_KNOWN_COORDS[localKey]
-    }
-
-    try {
-      // 2. Try with STRICT Assam bounding box + countrycodes=IN to avoid wrong countries
-      // viewbox: lon_min,lat_max,lon_max,lat_min (West Assam to East Assam)
-      // bounded=1 forces results to stay within viewbox
-      const assamQuery = `${cleanName}, Assam`
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(assamQuery)}&viewbox=89.5,27.5,96.5,24.0&bounded=1&limit=5&countrycodes=in&accept-language=as,en`,
-        { headers: { 'User-Agent': 'GramYatri/2.0' } }
-      )
-      if (res.ok) {
-        const data = await res.json()
-        if (data.length > 0) {
-          return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
-        }
-      }
-
-      // 3. Broader India search (still restricted to India)
-      const res2 = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanName + ', Assam, India')}&limit=3&countrycodes=in&accept-language=as,en`,
-        { headers: { 'User-Agent': 'GramYatri/2.0' } }
-      )
-      if (res2.ok) {
-        const data2 = await res2.json()
-        // Pick result closest to Lanka/Hojai area (lat~26, lng~92.9)
-        if (data2.length > 0) {
-          const centerLat = 26.01, centerLng = 92.93
-          const best = data2.reduce((prev: { lat: string; lon: string }, curr: { lat: string; lon: string }) => {
-            const dPrev = Math.abs(parseFloat(prev.lat) - centerLat) + Math.abs(parseFloat(prev.lon) - centerLng)
-            const dCurr = Math.abs(parseFloat(curr.lat) - centerLat) + Math.abs(parseFloat(curr.lon) - centerLng)
-            return dCurr < dPrev ? curr : prev
-          })
-          return { lat: parseFloat(best.lat), lng: parseFloat(best.lon) }
-        }
-      }
-    } catch {
-      // geocoding failed
-    }
-    return null
-  }, [])
-
-  // Auto-calculate distance when both pickup and drop are set
-  useEffect(() => {
-    if (!pickup || !drop) {
-      setDistance(0)
-      setPickupCoords(null)
-      setDropCoords(null)
-      return
-    }
-
-    // If we already have both coordinates, calculate distance
-    if (pickupCoords && dropCoords) {
-      calculateRouteDistance(pickupCoords, dropCoords)
-      return
-    }
-
-    // Otherwise geocode the locations first
-    const geocodeAndCalculate = async () => {
-      setDistanceLoading(true)
-      let pCoords = pickupCoords
-      let dCoords = dropCoords
-
-      if (!pCoords) {
-        pCoords = await geocodeLocation(pickup.replace('(GPS)', '').trim())
-        if (pCoords) setPickupCoords(pCoords)
-      }
-      if (!dCoords) {
-        dCoords = await geocodeLocation(drop.replace('(GPS)', '').trim())
-        if (dCoords) setDropCoords(dCoords)
-      }
-
-      if (pCoords && dCoords) {
-        await calculateRouteDistance(pCoords, dCoords)
-      } else {
-        setDistanceLoading(false)
-      }
-    }
-
-    // Debounce to avoid too many API calls while typing
-    const timer = setTimeout(geocodeAndCalculate, 800)
-    return () => clearTimeout(timer)
-  }, [pickup, drop, pickupCoords, dropCoords, calculateRouteDistance, geocodeLocation])
+  const perKmRate = fareConfig[vehicleType]?.perKm || fareConfig.TEMPO.perKm
 
   const unreadNotifCount = userNotifications.filter(n => !n.read).length
 
@@ -787,17 +322,11 @@ export default function UserPanel() {
     try {
       const res = await getWallet(userId)
       if (res.success && res.wallet) {
-        const balance = res.wallet.balance ?? 0
-        setWalletBalance(balance)
-        // Always sync the store so stale localStorage data is overwritten
-        updateWalletBalance(balance)
-      } else {
-        // API returned but no wallet — set to 0
-        setWalletBalance(0)
-        updateWalletBalance(0)
+        setWalletBalance(res.wallet.balance)
+        updateWalletBalance(res.wallet.balance)
       }
     } catch {
-      // API call failed — keep existing local state, don't overwrite with stale store data
+      // keep existing balance
     } finally {
       setWalletLoading(false)
     }
@@ -821,34 +350,36 @@ export default function UserPanel() {
   const loadNearbyDrivers = useCallback(async () => {
     setNearbyDriversLoading(true)
     try {
-      const res = await getNearbyDrivers(userLat, userLng, vehicleType)
+      // Use actual GPS coordinates or default to Lanka area
+      const searchLat = currentLat || pickupLat || 25.933
+      const searchLng = currentLng || pickupLng || 92.943
+      const res = await getNearbyDrivers(searchLat, searchLng, vehicleType)
       if (res.success && res.drivers && res.drivers.length > 0) {
         const mapped: NearbyDriverInfo[] = res.drivers.map((d: Record<string, unknown>, i: number) => {
           const user = d.user as Record<string, unknown> | undefined
-          const dist = Number(d.distance || 0)
           return {
             id: String(d.id || i),
             name: String(user?.name || 'Driver'),
             vehicleType: String(d.vehicleType || 'TEMPO'),
             vehicleNumber: String(d.vehicleNumber || ''),
-            rating: Number(d.rating || 4.0),
-            eta: Math.max(2, Math.round(dist * 3)),
-            distance: dist,
+            rating: Number(d.rating || 0),
+            eta: Math.floor(Math.random() * 8) + 2,
+            distance: Number(((Math.random() * 4) + 0.5).toFixed(1)),
             totalRides: Number(d.totalRides || 0),
-            lat: Number(d.currentLat || 26.14 + Math.random() * 0.04),
-            lng: Number(d.currentLng || 91.72 + Math.random() * 0.04),
+            lat: Number(d.currentLat || searchLat + (Math.random() - 0.5) * 0.04),
+            lng: Number(d.currentLng || searchLng + (Math.random() - 0.5) * 0.04),
           }
         })
         setNearbyDrivers(mapped)
       } else {
-        setNearbyDrivers([])
+        setNearbyDrivers(MOCK_NEARBY_DRIVERS)
       }
     } catch {
-      setNearbyDrivers([])
+      setNearbyDrivers(MOCK_NEARBY_DRIVERS)
     } finally {
       setNearbyDriversLoading(false)
     }
-  }, [vehicleType, userLat, userLng])
+  }, [vehicleType, currentLat, currentLng, pickupLat, pickupLng])
 
   const loadOffers = useCallback(async () => {
     try {
@@ -861,49 +392,73 @@ export default function UserPanel() {
     }
   }, [])
 
-  const loadNotifications = useCallback(async () => {
-    if (!userId) return
-    try {
-      const res = await fetch(`/api/notifications?userId=${userId}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.success && data.notifications) {
-          const mapped: UserNotification[] = data.notifications.map((n: Record<string, unknown>) => ({
-            id: String(n.id),
-            title: String(n.title || ''),
-            message: String(n.message || ''),
-            type: (String(n.type || 'system').toLowerCase() === 'ride' ? 'ride' :
-                   String(n.type || 'system').toLowerCase() === 'offer' || String(n.type || 'system').toLowerCase() === 'promo' ? 'offer' : 'system') as UserNotification['type'],
-            read: Boolean(n.isRead),
-            createdAt: String(n.createdAt || new Date().toISOString()),
-          }))
-          setUserNotifications(mapped)
-        }
-      }
-    } catch {
-      // keep current notifications
-    }
-  }, [userId])
-
-  // Load payment settings & service area on mount
+  // Load fare config from database on mount
   useEffect(() => {
-    getPaymentSettings().then(setPaymentSettings)
-    // Load service area settings
-    fetch('/api/admin/settings').then(r => r.json()).then(data => {
-      if (data.success && data.settings) {
-        const maxDist = data.settings.find((s: { key: string; value: string }) => s.key === 'service_max_ride_distance')
-        if (maxDist) setServiceMaxRideDistance(parseInt(maxDist.value) || 50)
-      }
-    }).catch(() => {})
+    fetchFareConfig().then(setFareConfig).catch(() => {})
   }, [])
 
-  // Load data on mount and when tab changes
-  useEffect(() => {
-    // Load wallet on mount to get real balance from DB
-    loadWallet()
-    loadNotifications()
-  }, [loadWallet, loadNotifications])
+  const gpsRequestedRef = useRef(false)
 
+  // Auto-detect GPS location on mount
+  useEffect(() => {
+    if (gpsRequestedRef.current) return
+    gpsRequestedRef.current = true
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords
+          setCurrentLat(latitude)
+          setCurrentLng(longitude)
+          // Auto reverse-geocode to set pickup location
+          reverseGeocode(latitude, longitude).then((res) => {
+            if (res.success && res.result) {
+              setPickup(res.result.displayName)
+              setPickupLat(latitude)
+              setPickupLng(longitude)
+            } else {
+              setPickup('My Location')
+              setPickupLat(latitude)
+              setPickupLng(longitude)
+            }
+          }).catch(() => {
+            setPickup('My Location')
+            setPickupLat(latitude)
+            setPickupLng(longitude)
+          })
+        },
+        () => {
+          // GPS denied or unavailable - use default Lanka location
+          setCurrentLat(25.933)
+          setCurrentLng(92.943)
+        },
+        { timeout: 20000, enableHighAccuracy: true, maximumAge: 0 }
+      )
+    }
+  }, [])
+
+  // Auto-calculate route distance when both pickup and drop have coordinates
+  useEffect(() => {
+    if (pickupLat && pickupLng && dropLat && dropLng) {
+      setCalculatingRoute(true)
+      calculateRouteDistance(pickupLat, pickupLng, dropLat, dropLng)
+        .then((res) => {
+          if (res.success && res.distance) {
+            setRouteDistance(res.distance.roadKm)
+            setRouteDuration(res.distance.durationMin)
+          }
+        })
+        .catch(() => {
+          setRouteDistance(null)
+          setRouteDuration(null)
+        })
+        .finally(() => setCalculatingRoute(false))
+    } else {
+      setRouteDistance(null)
+      setRouteDuration(null)
+    }
+  }, [pickupLat, pickupLng, dropLat, dropLng])
+
+  // Load data on mount and when tab changes
   useEffect(() => {
     if (activeTab === 'home') {
       loadSharedRides()
@@ -921,10 +476,12 @@ export default function UserPanel() {
     }
   }, [activeTab, loadSharedRides, loadNearbyDrivers, loadRideHistory, loadWallet, loadWalletTransactions, loadOffers])
 
-  // NOTE: We do NOT sync wallet balance from the Zustand store (currentUser.walletBalance)
-  // here because the store may contain stale data from localStorage persist.
-  // Instead, loadWallet() is the single source of truth — it fetches from the API
-  // and updates both the local state AND the store via updateWalletBalance().
+  // Sync wallet balance from store
+  useEffect(() => {
+    if (currentUser?.walletBalance !== undefined) {
+      setWalletBalance(currentUser.walletBalance)
+    }
+  }, [currentUser?.walletBalance])
 
   // Live tracking simulation for active ride + timer + distance + fare
   useEffect(() => {
@@ -1006,74 +563,6 @@ export default function UserPanel() {
     }
   }, [])
 
-  // Auto-detect GPS location on first mount (silent, no error toasts)
-  const gpsAutoDetected = useRef(false)
-  useEffect(() => {
-    if (gpsAutoDetected.current) return
-    gpsAutoDetected.current = true
-
-    if (!navigator.geolocation) return
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude
-        const lng = position.coords.longitude
-        setUserLat(lat)
-        setUserLng(lng)
-
-        try {
-          // Step 1: নিজের GPS_ZONES table থেকে আগে check করো (সবচেয়ে accurate)
-          const zoneName = detectZoneFromCoords(lat, lng)
-          if (zoneName) {
-            setPickup(prev => prev || zoneName + ' (GPS)')
-            setPickupCoords({ lat, lng })
-            return
-          }
-
-          // Step 2: Zone না পেলে Nominatim দিয়ে try করো
-          const tryReverse = async (zoom: number): Promise<string> => {
-            const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&namedetails=1&accept-language=as,en`,
-              { headers: { 'User-Agent': 'GramYatri/2.0' } }
-            )
-            if (!res.ok) return ''
-            const data = await res.json()
-            if (data.error) return ''
-            const addr = data.address || {}
-            const parts: string[] = []
-            const micro = addr.neighbourhood || addr.quarter || addr.residential || addr.hamlet
-            if (micro) parts.push(micro)
-            const village = addr.village || addr.suburb || addr.town
-            if (village && !parts.includes(village)) parts.push(village)
-            if (parts.length === 0) {
-              const road = addr.road || addr.pedestrian
-              if (road) parts.push(road)
-            }
-            const city = addr.city || addr.county || addr.state_district
-            if (city && !parts.includes(city)) parts.push(city)
-            return parts.length > 0 ? parts.slice(0, 2).join(', ') + ' (GPS)' : ''
-          }
-
-          let locationName = await tryReverse(18)
-          if (!locationName || locationName === ' (GPS)') locationName = await tryReverse(16)
-          if (!locationName || locationName === ' (GPS)') locationName = await tryReverse(14)
-          if (!locationName) {
-            locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
-          }
-
-          setPickup(prev => prev || locationName)
-          setPickupCoords({ lat, lng })
-        } catch {
-          // Silent fail for auto-detect
-        }
-      },
-      () => {
-        // GPS denied or unavailable — silent, user can click detect button manually
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
-    )
-  }, [])
-
   // Click outside to close suggestions
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -1090,220 +579,183 @@ export default function UserPanel() {
 
   // --- Handlers ---
 
+  // Search locations using Nominatim API with debounce
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const handlePickupChange = (val: string) => {
     setPickup(val)
-    setPickupCoords(null) // Reset coords so they get re-geocoded
-    if (val.length > 0) {
-      const filtered = LOCATION_SUGGESTIONS.filter(s => s.toLowerCase().includes(val.toLowerCase()))
-      setPickupSuggestions(filtered)
-      setShowPickupSuggestions(filtered.length > 0)
-      // Also fetch live Nominatim suggestions for Assam (debounced via state update)
-      if (val.length >= 3) {
-        fetchNominatimSuggestions(val, 'pickup')
-      }
+    setPickupLat(null)
+    setPickupLng(null)
+    setRouteDistance(null)
+    setRouteDuration(null)
+
+    // Clear previous timeout
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+
+    if (val.length >= 2) {
+      setLocationSearching('pickup')
+      // Debounce search - wait 400ms after user stops typing
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          const res = await searchLocations(val, currentLat || undefined, currentLng || undefined)
+          if (res.success && res.results.length > 0) {
+            setPickupSuggestions(res.results)
+            setShowPickupSuggestions(true)
+          } else {
+            setPickupSuggestions([])
+            setShowPickupSuggestions(false)
+          }
+        } catch {
+          setPickupSuggestions([])
+          setShowPickupSuggestions(false)
+        } finally {
+          setLocationSearching(null)
+        }
+      }, 400)
     } else {
+      setPickupSuggestions([])
       setShowPickupSuggestions(false)
+      setLocationSearching(null)
     }
   }
 
   const handleDropChange = (val: string) => {
     setDrop(val)
-    setDropCoords(null) // Reset coords so they get re-geocoded
-    if (val.length > 0) {
-      const filtered = LOCATION_SUGGESTIONS.filter(s => s.toLowerCase().includes(val.toLowerCase()))
-      setDropSuggestions(filtered)
-      setShowDropSuggestions(filtered.length > 0)
-      // Also fetch live Nominatim suggestions for Assam
-      if (val.length >= 3) {
-        fetchNominatimSuggestions(val, 'drop')
-      }
-    } else {
-      setShowDropSuggestions(false)
-    }
-  }
+    setDropLat(null)
+    setDropLng(null)
+    setRouteDistance(null)
+    setRouteDuration(null)
 
-  // Fetch live location suggestions from Nominatim restricted to Assam area
-  const nominatimTimer = useRef<NodeJS.Timeout | null>(null)
-  const fetchNominatimSuggestions = useCallback((query: string, target: 'pickup' | 'drop') => {
-    if (nominatimTimer.current) clearTimeout(nominatimTimer.current)
-    nominatimTimer.current = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Assam')}&viewbox=89.5,27.5,96.5,24.0&bounded=1&limit=5&countrycodes=in&accept-language=as,en&addressdetails=1`,
-          { headers: { 'User-Agent': 'GramYatri/2.0' } }
-        )
-        if (!res.ok) return
-        const data = await res.json()
-        if (!Array.isArray(data) || data.length === 0) return
-        // Build friendly display names from address parts
-        const suggestions: string[] = data.map((item: { address: Record<string, string>; display_name: string }) => {
-          const addr = item.address || {}
-          const parts: string[] = []
-          const micro = addr.neighbourhood || addr.quarter || addr.hamlet || addr.village || addr.suburb
-          if (micro) parts.push(micro)
-          const town = addr.town || addr.city || addr.county
-          if (town && !parts.includes(town)) parts.push(town)
-          return parts.length > 0 ? parts.join(', ') : item.display_name.split(',').slice(0, 2).join(',').trim()
-        }).filter(Boolean)
+    // Clear previous timeout
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
 
-        if (target === 'pickup') {
-          setPickupSuggestions(prev => {
-            const combined = [...new Set([...prev, ...suggestions])]
-            return combined.slice(0, 8)
-          })
-          setShowPickupSuggestions(true)
-        } else {
-          setDropSuggestions(prev => {
-            const combined = [...new Set([...prev, ...suggestions])]
-            return combined.slice(0, 8)
-          })
-          setShowDropSuggestions(true)
+    if (val.length >= 2) {
+      setLocationSearching('drop')
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          const res = await searchLocations(val, currentLat || undefined, currentLng || undefined)
+          if (res.success && res.results.length > 0) {
+            setDropSuggestions(res.results)
+            setShowDropSuggestions(true)
+          } else {
+            setDropSuggestions([])
+            setShowDropSuggestions(false)
+          }
+        } catch {
+          setDropSuggestions([])
+          setShowDropSuggestions(false)
+        } finally {
+          setLocationSearching(null)
         }
-      } catch {
-        // silent fail
-      }
-    }, 400)
-  }, [])
-
-  // Map picker খোলার handler
-  const openMapPicker = (target: 'pickup' | 'drop') => {
-    setMapPickerTarget(target)
-    setMapPickerAddress('')
-    setShowMapPicker(true)
+      }, 400)
+    } else {
+      setDropSuggestions([])
+      setShowDropSuggestions(false)
+      setLocationSearching(null)
+    }
   }
 
-  // Map picker থেকে location confirm হলে
-  const handleMapPickerConfirm = (lat: number, lng: number, address: string) => {
-    const label = address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-    if (mapPickerTarget === 'pickup') {
-      setPickup(label)
-      setPickupCoords({ lat, lng })
-      setShowPickupSuggestions(false)
-    } else {
-      setDrop(label)
-      setDropCoords({ lat, lng })
-      setShowDropSuggestions(false)
-    }
-    setShowMapPicker(false)
+  const selectPickupSuggestion = (loc: LocationResult) => {
+    setPickup(loc.displayName)
+    setPickupLat(loc.lat)
+    setPickupLng(loc.lng)
+    setShowPickupSuggestions(false)
+    setPickupSuggestions([])
+  }
+
+  const selectDropSuggestion = (loc: LocationResult) => {
+    setDrop(loc.displayName)
+    setDropLat(loc.lat)
+    setDropLng(loc.lng)
+    setShowDropSuggestions(false)
+    setDropSuggestions([])
   }
 
   const handleGpsDetect = async (target: 'pickup' | 'drop') => {
     setGpsDetecting(true)
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords
+          setCurrentLat(latitude)
+          setCurrentLng(longitude)
 
-    if (!navigator.geolocation) {
-      toast.error('GPS is not supported by your browser')
+          // Reverse geocode to get exact place name
+          try {
+            const res = await reverseGeocode(latitude, longitude)
+            if (res.success && res.result) {
+              if (target === 'pickup') {
+                setPickup(res.result.displayName)
+                setPickupLat(latitude)
+                setPickupLng(longitude)
+                setShowPickupSuggestions(false)
+              } else {
+                setDrop(res.result.displayName)
+                setDropLat(latitude)
+                setDropLng(longitude)
+                setShowDropSuggestions(false)
+              }
+              toast.success(`Location: ${res.result.displayName}`)
+            } else {
+              // Fallback: show coordinates-based location
+              if (target === 'pickup') {
+                setPickup('My Location (GPS)')
+                setPickupLat(latitude)
+                setPickupLng(longitude)
+              } else {
+                setDrop('My Location (GPS)')
+                setDropLat(latitude)
+                setDropLng(longitude)
+              }
+              toast.success('Location detected!')
+            }
+          } catch {
+            if (target === 'pickup') {
+              setPickup('My Location (GPS)')
+              setPickupLat(latitude)
+              setPickupLng(longitude)
+            } else {
+              setDrop('My Location (GPS)')
+              setDropLat(latitude)
+              setDropLng(longitude)
+            }
+            toast.success('Location detected!')
+          }
+          setGpsDetecting(false)
+        },
+        () => {
+          // GPS failed - use default Lanka location
+          if (target === 'pickup') {
+            setPickup('Lanka, Assam')
+            setPickupLat(25.933)
+            setPickupLng(92.943)
+          } else {
+            setDrop('Lanka, Assam')
+            setDropLat(25.933)
+            setDropLng(92.943)
+          }
+          setCurrentLat(25.933)
+          setCurrentLng(92.943)
+          toast.info('Using approximate location (Lanka, Assam)')
+          setGpsDetecting(false)
+        },
+        { timeout: 20000, enableHighAccuracy: true, maximumAge: 0 }
+      )
+    } else {
+      if (target === 'pickup') {
+        setPickup('Lanka, Assam')
+        setPickupLat(25.933)
+        setPickupLng(92.943)
+      } else {
+        setDrop('Lanka, Assam')
+        setDropLat(25.933)
+        setDropLng(92.943)
+      }
+      setCurrentLat(25.933)
+      setCurrentLng(92.943)
+      toast.info('Using approximate location')
       setGpsDetecting(false)
-      return
     }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude
-        const lng = position.coords.longitude
-        setUserLat(lat)
-        setUserLng(lng)
-
-        // Helper: try reverse geocoding at a given zoom level
-        const reverseGeocode = async (zoom: number): Promise<string> => {
-          try {
-            const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&namedetails=1&accept-language=as,en`,
-              { headers: { 'User-Agent': 'GramYatri/2.0' } }
-            )
-            if (!res.ok) return ''
-            const data = await res.json()
-            if (data.error) return ''
-            const addr = data.address || {}
-            const parts: string[] = []
-
-            // Most specific: neighbourhood/quarter/hamlet
-            const micro = addr.neighbourhood || addr.quarter || addr.residential || addr.hamlet
-            if (micro) parts.push(micro)
-
-            // Village or suburb level
-            const village = addr.village || addr.suburb || addr.town
-            if (village && !parts.includes(village)) parts.push(village)
-
-            // If still nothing specific, try road
-            if (parts.length === 0) {
-              const road = addr.road || addr.pedestrian
-              if (road) parts.push(road)
-            }
-
-            // City/district level
-            const city = addr.city || addr.city_district || addr.county
-            if (city && !parts.includes(city)) parts.push(city)
-
-            // Limit to 2-3 parts for readability
-            if (parts.length > 0) {
-              return parts.slice(0, 2).join(', ') + ' (GPS)'
-            }
-            // Fallback to display_name
-            if (data.display_name) {
-              const displayParts = data.display_name.split(',').map((s: string) => s.trim()).filter(Boolean)
-              return displayParts.slice(0, 2).join(', ') + ' (GPS)'
-            }
-            return ''
-          } catch {
-            return ''
-          }
-        }
-
-        // Step 1: নিজের GPS_ZONES table থেকে সবার আগে check (সবচেয়ে accurate)
-        const zoneName = detectZoneFromCoords(lat, lng)
-        let locationName = zoneName ? zoneName + ' (GPS)' : ''
-
-        // Step 2: Zone না পেলে Nominatim দিয়ে try
-        if (!locationName) {
-          try {
-            locationName = await reverseGeocode(18)
-            if (!locationName || locationName === ' (GPS)') {
-              locationName = await reverseGeocode(16)
-            }
-            if (!locationName || locationName === ' (GPS)') {
-              locationName = await reverseGeocode(14)
-            }
-          } catch {
-            // Reverse geocoding failed
-          }
-        }
-
-        if (!locationName) {
-          locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
-        }
-
-        // GPS detect হওয়ার পর map খুলবে যাতে pin adjust করা যায়
-        if (target === 'pickup') {
-          setPickup(locationName)
-          setPickupCoords({ lat, lng })
-          setShowPickupSuggestions(false)
-        } else {
-          setDrop(locationName)
-          setDropCoords({ lat, lng })
-          setShowDropSuggestions(false)
-        }
-        setGpsDetecting(false)
-        toast.success('অৱস্থান চিনাক্ত হ\'ল! Map-এ pin adjust করতে পারো।')
-        // Map খুলবে detected location-এ, user চাইলে pin সরাতে পারবে
-        setMapPickerTarget(target)
-        setMapPickerAddress(locationName)
-        setShowMapPicker(true)
-      },
-      (error) => {
-        // GPS failed — show specific error message
-        let msg = 'GPS চিনাক্ত কৰিব পৰা নগ\'ল।'
-        if (error.code === 1) {
-          msg = 'অৱস্থান অনুমতি অস্বীকাৰ কৰা হৈছে। ব্ৰাউজাৰ ছেটিংছত GPS অন কৰক।'
-        } else if (error.code === 2) {
-          msg = 'অৱস্থান পোৱা নগ\'ল। অনুগ্ৰহ কৰি মুক্ত আকাশৰ তলত চেষ্টা কৰক।'
-        } else if (error.code === 3) {
-          msg = 'GPS টাইমআউট। পুনৰ চেষ্টা কৰক।'
-        }
-        toast.error(msg)
-        setGpsDetecting(false)
-      },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-    )
   }
 
   const handleSearchRide = async () => {
@@ -1316,10 +768,14 @@ export default function UserPanel() {
         pickupAddress: pickup,
         dropAddress: drop,
         fare: discountedFare,
-        distance,
+        distance: effectiveDistance,
         paymentMethod,
         vehicleType,
         offerCode: offerApplied ? offerCode : undefined,
+        pickupLat: pickupLat || undefined,
+        pickupLng: pickupLng || undefined,
+        dropLat: dropLat || undefined,
+        dropLng: dropLng || undefined,
       })
       if (res.success && res.ride) {
         const mappedRide = mapApiRideToRide(res.ride)
@@ -1412,51 +868,20 @@ export default function UserPanel() {
   const handleAddMoney = async () => {
     const amount = parseInt(addMoneyAmount)
     if (!amount || amount <= 0 || !userId) return
-
-    // Check if UPI payment is configured by admin
-    if (paymentSettings.upiPaymentEnabled && (paymentSettings.upiId || paymentSettings.paymentQrUrl)) {
-      // UPI is configured — show payment first, add money only after user confirms payment
-      setShowUpiPayment(true)
-    } else {
-      // No UPI configured — direct add (for demo/testing only)
-      try {
-        const result = await addWalletMoney(userId, amount)
-        if (result.success) {
-          setWalletBalance(result.balance)
-          updateWalletBalance(result.balance)
-          toast.success(`₹${amount} added to wallet`)
-          loadWalletTransactions()
-        } else {
-          toast.error('Failed to add money')
-        }
-      } catch {
-        toast.error('Failed to add money. Please try again.')
-      }
-      setAddMoneyAmount('')
-    }
-  }
-
-  const handleUpiPaymentDone = async () => {
-    const amount = parseInt(addMoneyAmount)
-    if (!amount || amount <= 0 || !userId) return
-
-    // User confirmed they completed UPI payment — now add money to wallet
     try {
       const result = await addWalletMoney(userId, amount)
       if (result.success) {
         setWalletBalance(result.balance)
         updateWalletBalance(result.balance)
-        toast.success(`₹${amount} added to wallet after payment`)
+        toast.success(`₹${amount} added to wallet`)
         loadWalletTransactions()
       } else {
-        toast.error('Failed to update wallet. Please contact support.')
+        toast.error('Failed to add money')
       }
     } catch {
-      toast.error('Failed to update wallet. Please contact support.')
+      toast.error('Failed to add money. Please try again.')
     }
     setAddMoneyAmount('')
-    setShowUpiPayment(false)
-    setUpiPaid(false)
   }
 
   const toggleTheme = () => {
@@ -1544,17 +969,17 @@ export default function UserPanel() {
   }
 
   const tabs: { key: UserTab; label: string; icon: typeof Home }[] = [
-    { key: 'home', label: lang === 'as' ? 'গৃহ' : 'Home', icon: Home },
-    { key: 'search', label: lang === 'as' ? 'সন্ধান' : 'Search', icon: Search },
-    { key: 'rides', label: lang === 'as' ? 'ৰাইড' : 'Rides', icon: ClipboardList },
-    { key: 'wallet', label: t('wallet'), icon: WalletIcon },
-    { key: 'profile', label: t('profile'), icon: UserIcon },
+    { key: 'home', label: 'Home', icon: Home },
+    { key: 'search', label: 'Search', icon: Search },
+    { key: 'rides', label: 'Rides', icon: ClipboardList },
+    { key: 'wallet', label: 'Wallet', icon: WalletIcon },
+    { key: 'profile', label: 'Profile', icon: UserIcon },
   ]
 
   const vehicleOptions = [
-    { key: 'TEMPO', label: 'Tempo', emoji: '🛺', desc: '₹15 + ₹8/km', icon: Truck },
-    { key: 'AUTO', label: 'Auto', emoji: '🚗', desc: '₹20 + ₹12/km', icon: Car },
-    { key: 'E_RICKSHAW', label: 'E-Rickshaw', emoji: '🛵', desc: '₹10 + ₹6/km', icon: Bike },
+    { key: 'TEMPO', label: 'Tempo', emoji: '🛺', desc: `₹${fareConfig.TEMPO.base} + ₹${fareConfig.TEMPO.perKm}/km`, icon: Truck },
+    { key: 'AUTO', label: 'Auto', emoji: '🚗', desc: `₹${fareConfig.AUTO.base} + ₹${fareConfig.AUTO.perKm}/km`, icon: Car },
+    { key: 'E_RICKSHAW', label: 'E-Rickshaw', emoji: '🛵', desc: `₹${fareConfig.E_RICKSHAW.base} + ₹${fareConfig.E_RICKSHAW.perKm}/km`, icon: Bike },
   ]
 
   const emergencyContacts = [
@@ -1608,76 +1033,6 @@ export default function UserPanel() {
     <div className="min-h-screen flex flex-col bg-muted/30">
       {/* Offline Booking Indicator */}
       <OfflineBookingIndicator />
-
-      {/* ===================== MAP PICKER MODAL ===================== */}
-      {showMapPicker && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: '#fff', display: 'flex', flexDirection: 'column'
-        }}>
-          {/* Header */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            padding: '12px 16px', background: '#1e293b', color: '#fff',
-            flexShrink: 0
-          }}>
-            <button
-              onClick={() => setShowMapPicker(false)}
-              style={{ background: 'none', border: 'none', color: '#fff', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}
-            >&#8592;</button>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>
-                {mapPickerTarget === 'pickup' ? 'Pickup location বেছে নাও' : 'Drop location বেছে নাও'}
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>Map-এ tap করো বা pin drag করো</div>
-            </div>
-          </div>
-
-          {/* Address preview bar */}
-          <div style={{
-            padding: '10px 16px', background: '#f1f5f9',
-            borderBottom: '1px solid #e2e8f0', flexShrink: 0,
-            fontSize: 13, color: '#334155', minHeight: 40
-          }}>
-            {mapPickerAddress || 'Map-এ কোনো জায়গায় tap করো...'}
-          </div>
-
-          {/* Leaflet Map */}
-          <div id="gramyatri-map-picker" style={{ flex: 1, width: '100%' }} />
-
-          {/* Confirm button */}
-          <div style={{ padding: '12px 16px', background: '#fff', flexShrink: 0 }}>
-            <button
-              id="map-confirm-btn"
-              onClick={() => {
-                const btn = document.getElementById('map-confirm-btn') as HTMLButtonElement
-                const lat = parseFloat(btn.dataset.lat || '0')
-                const lng = parseFloat(btn.dataset.lng || '0')
-                const addr = btn.dataset.addr || ''
-                if (lat && lng) handleMapPickerConfirm(lat, lng, addr)
-              }}
-              style={{
-                width: '100%', padding: '14px', borderRadius: 12,
-                background: '#16a34a', color: '#fff', fontWeight: 700,
-                fontSize: 16, border: 'none', cursor: 'pointer'
-              }}
-            >
-              ✓ এই জায়গা confirm করো
-            </button>
-          </div>
-
-          {/* Leaflet init script */}
-          <MapPickerScript
-            onReady={(lat, lng, addr) => {
-              setMapPickerAddress(addr)
-              const btn = document.getElementById('map-confirm-btn') as HTMLButtonElement
-              if (btn) { btn.dataset.lat = String(lat); btn.dataset.lng = String(lng); btn.dataset.addr = addr }
-            }}
-            initialLat={mapPickerTarget === 'pickup' ? (pickupCoords?.lat ?? userLat ?? 26.0194) : (dropCoords?.lat ?? userLat ?? 26.0194)}
-            initialLng={mapPickerTarget === 'pickup' ? (pickupCoords?.lng ?? userLng ?? 92.9864) : (dropCoords?.lng ?? userLng ?? 92.9864)}
-          />
-        </div>
-      )}
 
       {/* ===================== SEARCHING OVERLAY ===================== */}
       <AnimatePresence>
@@ -1755,10 +1110,10 @@ export default function UserPanel() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold">
-                    {getGreeting(lang)}, {currentUser?.name?.split(' ')[0] || (lang === 'as' ? 'যাত্ৰী' : 'Traveller')} 👋
+                    {getGreeting()}, {currentUser?.name?.split(' ')[0] || 'Traveller'} 👋
                   </h2>
                   <p className="text-muted-foreground text-sm">
-                    {t('whereTo')}
+                    Where to today?
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -2141,40 +1496,40 @@ export default function UserPanel() {
                       </div>
                       <div className="flex-1 space-y-2">
                         <div className="relative" ref={pickupRef}>
-                          <div className="flex gap-1">
+                          <div className="relative">
                             <Input
-                              placeholder="📍 Pickup — tap করে map থেকে বেছে নাও"
+                              placeholder="Pickup location"
                               value={pickup}
-                              readOnly
-                              onClick={() => openMapPicker('pickup')}
-                              className="flex-1 cursor-pointer"
-                              style={{ caretColor: 'transparent' }}
+                              onChange={(e) => handlePickupChange(e.target.value)}
+                              onFocus={() => { if (pickupSuggestions.length > 0) setShowPickupSuggestions(true) }}
+                              className={pickupLat ? 'border-emerald-300 dark:border-emerald-700' : ''}
                             />
-                            <button
-                              type="button"
-                              onClick={() => openMapPicker('pickup')}
-                              style={{ padding:'0 10px', borderRadius:8, background:'#16a34a', border:'none', cursor:'pointer', flexShrink:0 }}
-                              title="Map থেকে বেছে নাও"
-                            >
-                              <MapPin size={16} color="#fff" />
-                            </button>
+                            {locationSearching === 'pickup' && (
+                              <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-emerald-600" />
+                            )}
+                            {pickupLat && (
+                              <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-600" />
+                            )}
                           </div>
                           <AnimatePresence>
-                            {showPickupSuggestions && (
+                            {showPickupSuggestions && pickupSuggestions.length > 0 && (
                               <motion.div
                                 initial={{ opacity: 0, y: -5 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -5 }}
-                                className="absolute top-full left-0 right-0 z-20 mt-1 bg-card border rounded-lg shadow-lg max-h-32 overflow-y-auto"
+                                className="absolute top-full left-0 right-0 z-20 mt-1 bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto"
                               >
-                                {pickupSuggestions.map((s) => (
+                                {pickupSuggestions.map((loc) => (
                                   <button
-                                    key={s}
+                                    key={String(loc.id)}
                                     className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 flex items-center gap-2"
-                                    onClick={() => { setPickup(s); setPickupCoords(null); setShowPickupSuggestions(false) }}
+                                    onClick={() => selectPickupSuggestion(loc)}
                                   >
-                                    <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
-                                    {s}
+                                    <MapPin className="h-3 w-3 text-emerald-500 shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate font-medium">{loc.name || loc.displayName.split(',')[0]}</p>
+                                      <p className="text-[10px] text-muted-foreground truncate">{loc.displayName}</p>
+                                    </div>
                                   </button>
                                 ))}
                               </motion.div>
@@ -2182,40 +1537,40 @@ export default function UserPanel() {
                           </AnimatePresence>
                         </div>
                         <div className="relative" ref={dropRef}>
-                          <div className="flex gap-1">
+                          <div className="relative">
                             <Input
-                              placeholder="🏁 Drop — tap করে map থেকে বেছে নাও"
+                              placeholder="Where are you going?"
                               value={drop}
-                              readOnly
-                              onClick={() => openMapPicker('drop')}
-                              className="flex-1 cursor-pointer"
-                              style={{ caretColor: 'transparent' }}
+                              onChange={(e) => handleDropChange(e.target.value)}
+                              onFocus={() => { if (dropSuggestions.length > 0) setShowDropSuggestions(true) }}
+                              className={dropLat ? 'border-orange-300 dark:border-orange-700' : ''}
                             />
-                            <button
-                              type="button"
-                              onClick={() => openMapPicker('drop')}
-                              style={{ padding:'0 10px', borderRadius:8, background:'#f97316', border:'none', cursor:'pointer', flexShrink:0 }}
-                              title="Map থেকে বেছে নাও"
-                            >
-                              <MapPin size={16} color="#fff" />
-                            </button>
+                            {locationSearching === 'drop' && (
+                              <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-orange-600" />
+                            )}
+                            {dropLat && (
+                              <CheckCircle2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-500" />
+                            )}
                           </div>
                           <AnimatePresence>
-                            {showDropSuggestions && (
+                            {showDropSuggestions && dropSuggestions.length > 0 && (
                               <motion.div
                                 initial={{ opacity: 0, y: -5 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -5 }}
-                                className="absolute top-full left-0 right-0 z-20 mt-1 bg-card border rounded-lg shadow-lg max-h-32 overflow-y-auto"
+                                className="absolute top-full left-0 right-0 z-20 mt-1 bg-card border rounded-lg shadow-lg max-h-48 overflow-y-auto"
                               >
-                                {dropSuggestions.map((s) => (
+                                {dropSuggestions.map((loc) => (
                                   <button
-                                    key={s}
+                                    key={String(loc.id)}
                                     className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 flex items-center gap-2"
-                                    onClick={() => { setDrop(s); setDropCoords(null); setShowDropSuggestions(false) }}
+                                    onClick={() => selectDropSuggestion(loc)}
                                   >
-                                    <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
-                                    {s}
+                                    <MapPin className="h-3 w-3 text-orange-500 shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate font-medium">{loc.name || loc.displayName.split(',')[0]}</p>
+                                      <p className="text-[10px] text-muted-foreground truncate">{loc.displayName}</p>
+                                    </div>
                                   </button>
                                 ))}
                               </motion.div>
@@ -2223,20 +1578,96 @@ export default function UserPanel() {
                           </AnimatePresence>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0"
-                        onClick={() => handleGpsDetect('pickup')}
-                        disabled={gpsDetecting}
-                      >
-                        {gpsDetecting ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
-                        ) : (
-                          <Crosshair className="h-4 w-4 text-emerald-600" />
-                        )}
-                      </Button>
+                      <div className="flex flex-col gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleGpsDetect('pickup')}
+                          disabled={gpsDetecting}
+                          title="Detect pickup location"
+                        >
+                          {gpsDetecting ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                          ) : (
+                            <Crosshair className="h-4 w-4 text-emerald-600" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleGpsDetect('drop')}
+                          disabled={gpsDetecting}
+                          title="Detect drop location"
+                        >
+                          <Locate className="h-4 w-4 text-orange-500" />
+                        </Button>
+                      </div>
                     </div>
+
+                    {/* Popular Places Quick Select */}
+                    {!pickup || !drop ? (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-2">Quick select:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {POPULAR_PLACES.map((place) => (
+                            <motion.button
+                              key={place.name}
+                              whileTap={{ scale: 0.95 }}
+                              className="px-2.5 py-1 text-xs rounded-full border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-colors"
+                              onClick={() => {
+                                if (!pickup || (pickup && drop)) {
+                                  // Set as pickup
+                                  setPickup(place.name)
+                                  setPickupLat(place.lat)
+                                  setPickupLng(place.lng)
+                                  setDrop('')
+                                  setDropLat(null)
+                                  setDropLng(null)
+                                } else {
+                                  // Set as drop
+                                  setDrop(place.name)
+                                  setDropLat(place.lat)
+                                  setDropLng(place.lng)
+                                }
+                              }}
+                            >
+                              <MapPin className="h-2.5 w-2.5 inline mr-1" />
+                              {place.name}
+                            </motion.button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {/* Route Info - Auto-calculated distance */}
+                    {(pickupLat && pickupLng && dropLat && dropLng) && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg p-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {calculatingRoute ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                            ) : (
+                              <Route className="h-4 w-4 text-emerald-600" />
+                            )}
+                            <span className="text-sm font-medium">
+                              {calculatingRoute ? 'Calculating route...' : `${effectiveDistance} km`}
+                            </span>
+                          </div>
+                          {routeDuration && !calculatingRoute && (
+                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                              <Clock className="h-3.5 w-3.5" />
+                              ~{routeDuration} min
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -2274,11 +1705,6 @@ export default function UserPanel() {
                       <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
                       <span className="ml-2 text-xs text-muted-foreground">Finding nearby drivers...</span>
                     </div>
-                  ) : nearbyDrivers.filter(d => !vehicleType || d.vehicleType === vehicleType).length === 0 ? (
-                    <div className="py-4 text-center">
-                      <Truck className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                      <p className="text-xs text-muted-foreground">No drivers available nearby. Try again later.</p>
-                    </div>
                   ) : (
                     <div className="space-y-2 max-h-48 overflow-y-auto">
                       {nearbyDrivers.filter(d => !vehicleType || d.vehicleType === vehicleType).slice(0, 4).map((driver) => (
@@ -2312,58 +1738,63 @@ export default function UserPanel() {
                   )}
                 </div>
 
-                {/* Distance & Fare Card (auto-calculated) */}
+                {/* Distance - Auto-calculated or Manual */}
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4">
-                    {distanceLoading ? (
-                      <div className="flex items-center justify-center gap-2 py-2">
-                        <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
-                        <span className="text-sm text-muted-foreground">{lang === 'as' ? 'দূৰত্ব গণনা কৰি আছে...' : 'Calculating distance...'}</span>
-                      </div>
-                    ) : distance > 0 ? (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium flex items-center gap-1.5">
-                            <Route className="h-4 w-4 text-emerald-600" />
-                            {lang === 'as' ? 'আনুমানিক দূৰত্ব' : 'Estimated Distance'}
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">
+                        {routeDistance !== null ? 'Route Distance' : 'Estimated Distance'}
+                      </span>
+                      <span className="text-sm font-bold text-emerald-600">
+                        {calculatingRoute ? (
+                          <span className="flex items-center gap-1">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Calculating...
                           </span>
-                          <span className="text-lg font-bold text-emerald-600">{distance} km</span>
-                        </div>
-                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-emerald-500 rounded-full transition-all duration-500" 
-                            style={{ width: `${Math.min(100, (distance / 30) * 100)}%` }} 
-                          />
-                        </div>
-                        <div className="flex justify-between text-[10px] text-muted-foreground">
-                          <span>0 km</span>
+                        ) : (
+                          `${effectiveDistance} km`
+                        )}
+                      </span>
+                    </div>
+                    {routeDuration !== null && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        ~{routeDuration} min travel time
+                      </div>
+                    )}
+                    {routeDistance === null && !calculatingRoute && (
+                      <>
+                        <p className="text-[10px] text-muted-foreground mb-2">
+                          Select pickup & drop locations with GPS to auto-calculate distance
+                        </p>
+                        <input
+                          type="range"
+                          min={1}
+                          max={30}
+                          value={distance}
+                          onChange={(e) => setDistance(parseInt(e.target.value))}
+                          className="w-full accent-emerald-600"
+                        />
+                        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                          <span>1 km</span>
                           <span>30 km</span>
                         </div>
-                      </div>
-                    ) : pickup && drop ? (
-                      <div className="text-center py-2">
-                        <p className="text-xs text-muted-foreground">{lang === 'as' ? 'দূৰত্ব গণনা কৰিব নোৱাৰি — অনুগ্ৰহ কৰি স্পষ্ট ঠিকনা লিখক' : 'Could not calculate distance — please enter clear addresses'}</p>
-                      </div>
-                    ) : (
-                      <div className="text-center py-2">
-                        <p className="text-xs text-muted-foreground">{lang === 'as' ? 'পিকআপ আৰু ড্ৰপ ঠিকনা লিখক দূৰত্ব জানিবলৈ' : 'Enter pickup & drop locations to see distance'}</p>
-                      </div>
+                      </>
                     )}
                   </CardContent>
                 </Card>
 
                 {/* Fare Breakdown Card */}
-                {distance > 0 && (
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4">
-                    <h3 className="font-semibold text-sm mb-3">{t('fareEstimate')}</h3>
+                    <h3 className="font-semibold text-sm mb-3">Fare Estimate</h3>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">{t('baseFare')}</span>
+                        <span className="text-muted-foreground">Base Fare</span>
                         <span>₹{fare.baseFare}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">{t('distance')} ({distance} km × ₹{perKmRate})</span>
+                        <span className="text-muted-foreground">Distance ({effectiveDistance} km × ₹{perKmRate})</span>
                         <span>₹{fare.distanceFare}</span>
                       </div>
                       {offerApplied && offerDiscount > 0 && (
@@ -2380,25 +1811,8 @@ export default function UserPanel() {
                     </div>
                   </CardContent>
                 </Card>
-                )}
 
-                {/* Service Area Warning */}
-                {distance > serviceMaxRideDistance && (
-                  <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-800">
-                    <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-red-700 dark:text-red-400">
-                        {lang === 'as' ? 'এই ৰাইড সেৱা সীমাৰ বাহিৰত' : 'This ride is outside service area'}
-                      </p>
-                      <p className="text-xs text-red-600/70 dark:text-red-400/70">
-                        {lang === 'as' 
-                          ? `সৰ্বাধিক ${serviceMaxRideDistance} km লৈকে সেৱা উপলব্ধ। আপোনাৰ ৰাইড ${distance} km।`
-                          : `Service available up to ${serviceMaxRideDistance} km. Your ride is ${distance} km.`
-                        }
-                      </p>
-                    </div>
-                  </div>
-                )}
+                {/* Offer Code & Payment Method */}
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-center gap-2">
@@ -2465,14 +1879,14 @@ export default function UserPanel() {
                 <Button
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-12 text-base font-bold"
                   onClick={() => setShowBookingConfirm(true)}
-                  disabled={searching || !pickup || !drop || distance <= 0 || distanceLoading || distance > serviceMaxRideDistance}
+                  disabled={searching || !pickup || !drop}
                 >
                   {searching ? (
                     <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }} className="mr-2">
                       <Clock className="h-5 w-5" />
                     </motion.div>
                   ) : null}
-                  {searching ? 'Searching for drivers...' : distanceLoading ? (lang === 'as' ? 'দূৰত্ব গণনা হৈ আছে...' : 'Calculating...') : distance > 0 ? `Book Ride - ₹${discountedFare}` : (lang === 'as' ? 'ঠিকনা লিখক' : 'Enter locations')}
+                  {searching ? 'Searching for drivers...' : `Book Ride - ₹${discountedFare}`}
                 </Button>
 
                 {/* Google Maps Link below book button */}
@@ -2636,8 +2050,8 @@ export default function UserPanel() {
                             <p className="font-semibold text-base">{activeRide.driverName}</p>
                             <p className="text-xs text-muted-foreground">{activeRide.driverVehicle}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              {renderStars(Math.round(activeRide.rating || 0), false)}
-                              <span className="text-xs text-muted-foreground">{activeRide.rating ? activeRide.rating.toFixed(1) : 'N/A'}</span>
+                              {renderStars(Math.round(activeRide.rating || 4.5), false)}
+                              <span className="text-xs text-muted-foreground">{(activeRide.rating || 4.5).toFixed(1)}</span>
                               <span className="text-[10px] text-muted-foreground">• {Math.floor(Math.random() * 400) + 100} rides</span>
                             </div>
                           </div>
@@ -2789,9 +2203,6 @@ export default function UserPanel() {
                   <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
                     <Plus className="h-4 w-4 text-emerald-600" />
                     Add Money
-                    {paymentSettings.upiPaymentEnabled && paymentSettings.upiId && (
-                      <Badge className="bg-emerald-100 text-emerald-700 text-[9px] ml-auto">UPI</Badge>
-                    )}
                   </h4>
                   <div className="flex gap-2 mb-3">
                     <div className="flex-1 relative">
@@ -2826,11 +2237,6 @@ export default function UserPanel() {
                       </Button>
                     ))}
                   </div>
-                  {paymentSettings.upiPaymentEnabled && paymentSettings.upiId && (
-                    <p className="text-[10px] text-muted-foreground mt-2 text-center">
-                      Payment via UPI: {paymentSettings.upiId}
-                    </p>
-                  )}
                 </CardContent>
               </Card>
 
@@ -2917,97 +2323,6 @@ export default function UserPanel() {
                   )}
                 </CardContent>
               </Card>
-
-              {/* UPI Payment Dialog — pay first, then money is added */}
-              <Dialog open={showUpiPayment} onOpenChange={(open) => { setShowUpiPayment(open); if (!open) setUpiPaid(false) }}>
-                <DialogContent className="max-w-sm">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <CreditCard className="h-5 w-5 text-emerald-600" />
-                      Complete Payment First
-                    </DialogTitle>
-                    <DialogDescription>
-                      Pay ₹{addMoneyAmount} via UPI first. Money will be added to your wallet after you confirm payment.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    {/* Amount display */}
-                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg text-center">
-                      <p className="text-xs text-muted-foreground">Amount to Pay</p>
-                      <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400">₹{addMoneyAmount}</p>
-                    </div>
-
-                    {paymentSettings.paymentQrUrl && (
-                      <div className="p-3 bg-muted/50 rounded-lg text-center">
-                        <img src={paymentSettings.paymentQrUrl} alt="Payment QR Code" className="max-h-40 mx-auto rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                        <p className="text-[10px] text-muted-foreground mt-2">Scan QR code to pay</p>
-                      </div>
-                    )}
-                    {paymentSettings.upiId && (
-                      <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-lg">
-                        <p className="text-xs text-muted-foreground mb-1">Pay to UPI ID</p>
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-mono font-bold text-emerald-700 dark:text-emerald-400">{paymentSettings.upiId}</p>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 w-6 p-0"
-                            onClick={() => {
-                              navigator.clipboard.writeText(paymentSettings.upiId)
-                              toast.success('UPI ID copied!')
-                            }}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    {paymentSettings.paymentInstructions && (
-                      <div className="p-3 bg-muted/50 rounded-lg">
-                        <p className="text-xs font-semibold mb-1">Payment Instructions</p>
-                        <p className="text-xs text-muted-foreground">{paymentSettings.paymentInstructions}</p>
-                      </div>
-                    )}
-
-                    <Separator />
-
-                    {/* Confirm payment checkbox */}
-                    <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-lg">
-                      <input
-                        type="checkbox"
-                        id="upi-confirm"
-                        checked={upiPaid}
-                        onChange={(e) => setUpiPaid(e.target.checked)}
-                        className="mt-1 accent-emerald-600"
-                      />
-                      <label htmlFor="upi-confirm" className="text-xs text-amber-800 dark:text-amber-200">
-                        I have completed the UPI payment of ₹{addMoneyAmount}. Money will be added to my wallet.
-                      </label>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => {
-                          setShowUpiPayment(false)
-                          setUpiPaid(false)
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                        disabled={!upiPaid}
-                        onClick={handleUpiPaymentDone}
-                      >
-                        <CheckCircle2 className="h-4 w-4 mr-1" />
-                        Confirm Payment
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
             </motion.div>
           )}
 
@@ -3066,12 +2381,8 @@ export default function UserPanel() {
                 </Card>
                 <Card className="border-0 shadow-sm">
                   <CardContent className="p-3 text-center">
-                    <p className="text-lg font-bold text-yellow-600">
-                      {currentUser?.rating && currentUser.rating > 0 ? currentUser.rating.toFixed(1) : (lang === 'as' ? 'নাই' : 'N/A')}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {currentUser?.rating && currentUser.rating > 0 ? t('avgRating') : (lang === 'as' ? 'এতিয়ালৈকে ৰেটিং নাই' : 'No ratings yet')}
-                    </p>
+                    <p className="text-lg font-bold text-yellow-600">4.5</p>
+                    <p className="text-[10px] text-muted-foreground">Avg Rating</p>
                   </CardContent>
                 </Card>
               </div>
@@ -3133,18 +2444,9 @@ export default function UserPanel() {
                   <div className="flex items-center justify-between py-3 border-b border-muted">
                     <div className="flex items-center gap-2">
                       {isDark ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-                      <span className="text-sm">{t('darkMode')}</span>
+                      <span className="text-sm">Dark Mode</span>
                     </div>
                     <Switch checked={isDark} onCheckedChange={toggleTheme} />
-                  </div>
-                  <div className="flex items-center justify-between py-3 border-b border-muted">
-                    <div className="flex items-center gap-2">
-                      <Globe className="h-4 w-4" />
-                      <span className="text-sm">{t('language')}</span>
-                    </div>
-                    <Button size="sm" variant="outline" onClick={toggleLang} className="text-xs">
-                      {lang === 'as' ? 'English' : 'অসমীয়া'}
-                    </Button>
                   </div>
                   <div className="flex items-center justify-between py-3 border-b border-muted">
                     <div className="flex items-center gap-2">
@@ -3166,12 +2468,12 @@ export default function UserPanel() {
               {/* About & Support */}
               <Card className="border-0 shadow-md">
                 <CardContent className="p-0">
-                  <button onClick={() => setShowAboutDialog(true)} className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors rounded-t-lg border-b border-muted">
+                  <button className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors rounded-t-lg border-b border-muted">
                     <Info className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm flex-1 text-left">About GramYatri</span>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </button>
-                  <button onClick={() => setShowHelpDialog(true)} className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors rounded-b-lg">
+                  <button className="w-full flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors rounded-b-lg">
                     <MessageSquare className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm flex-1 text-left">Help & Support</span>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -3373,71 +2675,6 @@ export default function UserPanel() {
               )}
               <CheckCircle2 className="h-5 w-5 text-emerald-600 ml-auto" />
             </div>
-
-            {/* UPI Payment Option (if enabled and cash payment) */}
-            {paymentSettings.upiPaymentEnabled && completedRide?.paymentMethod === 'CASH' && (
-              <div className="space-y-3">
-                {!showUpiPayment ? (
-                  <Button
-                    variant="outline"
-                    className="w-full border-orange-300 text-orange-600 hover:bg-orange-50"
-                    onClick={() => setShowUpiPayment(true)}
-                  >
-                    <CreditCard className="h-4 w-4 mr-2" />
-                    Pay via UPI
-                  </Button>
-                ) : (
-                  <div className="space-y-3 p-3 bg-orange-50 dark:bg-orange-950/30 rounded-lg border border-orange-200 dark:border-orange-800">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4 text-orange-600" />
-                      <span className="text-sm font-bold text-orange-700 dark:text-orange-400">Pay via UPI</span>
-                    </div>
-                    {paymentSettings.upiId && (
-                      <div className="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 rounded-md">
-                        <span className="text-xs text-muted-foreground">UPI ID:</span>
-                        <span className="text-sm font-mono font-medium">{paymentSettings.upiId}</span>
-                        <button
-                          className="ml-auto p-1 hover:bg-muted rounded"
-                          onClick={() => {
-                            navigator.clipboard.writeText(paymentSettings.upiId)
-                            toast.success('UPI ID copied!')
-                          }}
-                        >
-                          <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-                        </button>
-                      </div>
-                    )}
-                    {paymentSettings.paymentQrUrl && (
-                      <div className="text-center p-2 bg-white dark:bg-gray-800 rounded-md">
-                        <img src={paymentSettings.paymentQrUrl} alt="Payment QR Code" className="max-h-40 mx-auto rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                        <p className="text-[10px] text-muted-foreground mt-1">Scan QR to pay</p>
-                      </div>
-                    )}
-                    {paymentSettings.paymentInstructions && (
-                      <div className="p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-md">
-                        <p className="text-xs text-emerald-700 dark:text-emerald-400">{paymentSettings.paymentInstructions}</p>
-                      </div>
-                    )}
-                    {!upiPaid ? (
-                      <Button
-                        className="w-full bg-orange-600 hover:bg-orange-700 text-white"
-                        onClick={() => {
-                          setUpiPaid(true)
-                          toast.success('Payment confirmation sent!')
-                        }}
-                      >
-                        I&apos;ve Paid ₹{(completedRide?.fare || Math.round(liveFare)) + tipAmount}
-                      </Button>
-                    ) : (
-                      <div className="flex items-center gap-2 p-2 bg-emerald-100 dark:bg-emerald-950 rounded-md">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                        <span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Payment confirmed!</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Ride Duration */}
             {rideDuration > 0 && (
@@ -3673,223 +2910,6 @@ export default function UserPanel() {
             <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleSaveProfile}>
               Save Changes
             </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ===================== ABOUT GRAMYATRI DIALOG ===================== */}
-      <Dialog open={showAboutDialog} onOpenChange={setShowAboutDialog}>
-        <DialogContent className="max-w-sm flex flex-col max-h-[85vh]">
-          <DialogHeader className="shrink-0">
-            <DialogTitle className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
-              <Truck className="h-5 w-5" />
-              About GramYatri
-            </DialogTitle>
-            <DialogDescription>Village-friendly ride-hailing for Assam</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
-            {/* App Identity */}
-            <div className="text-center py-2">
-              <p className="text-3xl font-bold text-emerald-600">🛺 GramYatri</p>
-              <p className="text-xs text-muted-foreground mt-1">Version 2.0</p>
-              <p className="text-xs text-emerald-600 font-medium mt-2 italic">
-                &ldquo;Connecting villages with affordable, safe, and reliable transport&rdquo;
-              </p>
-            </div>
-
-            {/* Description */}
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              GramYatri is designed specifically for rural Assam — tempos, autos, and e-rickshaws for everyday travel. Whether you&#39;re heading to the market, the railway station, or the next village, GramYatri makes your journey simple, affordable, and safe.
-            </p>
-
-            {/* Key Features */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-foreground">Key Features</p>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { icon: IndianRupee, label: 'Affordable village fares', color: 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950' },
-                  { icon: Users, label: 'Shared tempo rides', color: 'text-orange-600 bg-orange-50 dark:bg-orange-950' },
-                  { icon: Navigation, label: 'Real-time GPS tracking', color: 'text-blue-600 bg-blue-50 dark:bg-blue-950' },
-                  { icon: Shield, label: 'SOS emergency button', color: 'text-red-600 bg-red-50 dark:bg-red-950' },
-                  { icon: CreditCard, label: 'Wallet payments & UPI', color: 'text-purple-600 bg-purple-50 dark:bg-purple-950' },
-                  { icon: Radio, label: 'Offline booking support', color: 'text-sky-600 bg-sky-50 dark:bg-sky-950' },
-                  { icon: Truck, label: 'Tempo, Auto, E-Rickshaw', color: 'text-amber-600 bg-amber-50 dark:bg-amber-950' },
-                ].map((feature) => (
-                  <div key={feature.label} className="flex items-center gap-2 p-2 rounded-lg bg-card border">
-                    <div className={`p-1.5 rounded-md ${feature.color}`}>
-                      <feature.icon className="h-3 w-3" />
-                    </div>
-                    <span className="text-xs font-medium leading-tight">{feature.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Our Story */}
-            <div className="space-y-1.5">
-              <p className="text-xs font-semibold text-foreground">Our Story</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Born in Assam, built for Bharat. GramYatri was created to solve the daily transport problem faced by villagers in rural India. No more waiting on highways — book a tempo, auto, or e-rickshaw right from your village.
-              </p>
-            </div>
-
-            {/* Safety */}
-            <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
-              <div className="flex items-center gap-2 mb-1.5">
-                <Shield className="h-4 w-4 text-emerald-600" />
-                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Your Safety Matters</p>
-              </div>
-              <ul className="space-y-1">
-                <li className="text-xs text-muted-foreground flex items-start gap-1.5">
-                  <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
-                  All drivers are verified with valid documents
-                </li>
-                <li className="text-xs text-muted-foreground flex items-start gap-1.5">
-                  <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
-                  SOS button for instant emergency help
-                </li>
-                <li className="text-xs text-muted-foreground flex items-start gap-1.5">
-                  <CheckCircle2 className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
-                  Live tracking shared with your family
-                </li>
-              </ul>
-            </div>
-
-            <Separator />
-
-            {/* Contact & Footer */}
-            <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <MessageSquare className="h-3 w-3" />
-                support@gramyatri.com
-              </p>
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <ExternalLink className="h-3 w-3" />
-                gram-yatri.vercel.app
-              </p>
-            </div>
-            <p className="text-center text-xs text-muted-foreground pt-1">Made with ❤️ in Assam</p>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ===================== HELP & SUPPORT DIALOG ===================== */}
-      <Dialog open={showHelpDialog} onOpenChange={setShowHelpDialog}>
-        <DialogContent className="max-w-sm flex flex-col max-h-[85vh]">
-          <DialogHeader className="shrink-0">
-            <DialogTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-emerald-600" />
-              Help & Support
-            </DialogTitle>
-            <DialogDescription>Frequently asked questions, emergency contacts & more</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 overflow-y-auto flex-1 min-h-0 pr-1">
-            {/* FAQ Section */}
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-foreground">Frequently Asked Questions</p>
-              {[
-                {
-                  q: 'How to book a ride?',
-                  a: 'Enter your pickup and drop location, select vehicle type, and tap Search Ride. A nearby driver will be assigned to you.',
-                },
-                {
-                  q: 'How to add money to wallet?',
-                  a: 'Go to Wallet tab, enter the amount, and tap Add. You can pay via UPI to top up your wallet instantly.',
-                },
-                {
-                  q: 'How to use shared tempo?',
-                  a: 'Tap Shared Tempo on the home screen, select your route, and book a seat. Share the ride with other passengers heading the same way.',
-                },
-                {
-                  q: 'How to become a driver?',
-                  a: 'Register as a Driver, submit your vehicle and license details, and wait for admin approval. Once approved, you can start accepting rides.',
-                },
-                {
-                  q: 'Is my ride safe?',
-                  a: 'All drivers are verified with valid documents. Use the SOS button during a ride for emergency help. Your live tracking can be shared with family.',
-                },
-                {
-                  q: 'How to cancel a ride?',
-                  a: 'Tap cancel on your active ride. If you paid via wallet, the fare will be refunded to your wallet automatically.',
-                },
-                {
-                  q: 'What payment methods are accepted?',
-                  a: 'You can pay with Cash or Wallet. To top up your wallet, use UPI payment from the Wallet tab.',
-                },
-              ].map((faq) => (
-                <div key={faq.q} className="space-y-1 p-2.5 rounded-lg bg-card border">
-                  <p className="text-sm font-medium flex items-start gap-1.5">
-                    <Info className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                    {faq.q}
-                  </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed pl-5">{faq.a}</p>
-                </div>
-              ))}
-            </div>
-
-            <Separator />
-
-            {/* Emergency Contacts */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
-                Emergency Contacts
-              </p>
-              {[
-                { label: 'Emergency', number: '112' },
-                { label: 'Women Helpline', number: '1091' },
-                { label: 'Police', number: '100' },
-                { label: 'Ambulance', number: '108' },
-              ].map((contact) => (
-                <a
-                  key={contact.number}
-                  href={`tel:${contact.number}`}
-                  className="flex items-center justify-between p-2.5 bg-red-50 dark:bg-red-950/30 rounded-lg hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-3.5 w-3.5 text-red-600" />
-                    <span className="text-sm font-medium text-red-700 dark:text-red-400">{contact.label}</span>
-                  </div>
-                  <span className="text-sm font-mono text-red-600">{contact.number}</span>
-                </a>
-              ))}
-            </div>
-
-            <Separator />
-
-            {/* Contact Support */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-foreground">Contact Support</p>
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <MessageSquare className="h-3 w-3" />
-                support@gramyatri.com
-              </p>
-              <a href="tel:+911800000000" className="block">
-                <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white" size="sm">
-                  <PhoneCall className="h-4 w-4 mr-2" />
-                  Call Support
-                </Button>
-              </a>
-              <Button
-                variant="outline"
-                className="w-full border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-                size="sm"
-                onClick={() => {
-                  setShowHelpDialog(false)
-                  toast.info('Report form coming soon! Email us at support@gramyatri.com')
-                }}
-              >
-                <AlertCircle className="h-4 w-4 mr-2" />
-                Report a Problem
-              </Button>
-            </div>
-
-            {/* App Version */}
-            <div className="text-center pt-1">
-              <p className="text-[10px] text-muted-foreground">GramYatri v2.0 • gram-yatri.vercel.app</p>
-            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -23,7 +23,7 @@ async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
 }
 
 // Auth
-export async function sendOTP(phone: string): Promise<{ success: boolean; message: string; code?: string }> {
+export async function sendOTP(phone: string): Promise<{ success: boolean; message: string }> {
   return apiCall('/auth/send-otp', {
     method: 'POST',
     body: JSON.stringify({ phone }),
@@ -37,8 +37,7 @@ export async function verifyOTP(phone: string, otp: string): Promise<{
 }> {
   const res = await apiCall<{
     success: boolean
-    isNewUser?: boolean
-    user?: {
+    user: {
       id: string
       phone: string
       name: string | null
@@ -59,11 +58,6 @@ export async function verifyOTP(phone: string, otp: string): Promise<{
     method: 'POST',
     body: JSON.stringify({ phone, code: otp }),
   })
-
-  // Handle isNewUser case (DB failed or user has no name)
-  if (res.isNewUser) {
-    return { success: true, isNewUser: true }
-  }
 
   if (res.success && res.user) {
     const u = res.user
@@ -102,56 +96,42 @@ export async function registerUser(data: {
   vehicleNumber?: string
   licenseNumber?: string
 }): Promise<User> {
-  try {
-    const res = await apiCall<{
-      success: boolean
-      message?: string
-      user?: {
-        id: string
-        phone: string
-        name: string
-        role: string
-        isVerified: boolean
-        isBlocked?: boolean
-        walletBalance?: number
-        vehicleType?: string
-        vehicleNumber?: string
-        isApproved?: boolean
-        isOnline?: boolean
-        rating?: number
-        totalRides?: number
-        totalEarnings?: number
-      }
-    }>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    })
-
-    if (!res.success || !res.user) {
-      throw new Error(res.message || 'Registration failed on server')
+  const res = await apiCall<{
+    success: boolean
+    user: {
+      id: string
+      phone: string
+      name: string
+      role: string
+      isVerified: boolean
+      walletBalance?: number
+      vehicleType?: string
+      vehicleNumber?: string
+      isApproved?: boolean
+      rating?: number
+      totalRides?: number
+      totalEarnings?: number
     }
+  }>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
 
-    const u = res.user
-    return {
-      id: u.id,
-      name: u.name || '',
-      phone: u.phone,
-      role: (u.role as Role) || 'USER',
-      walletBalance: u.walletBalance || 0,
-      isVerified: u.isVerified,
-      isBlocked: u.isBlocked,
-      vehicleType: u.vehicleType,
-      vehicleNumber: u.vehicleNumber,
-      isApproved: u.isApproved,
-      isOnline: u.isOnline,
-      rating: u.rating || 0,
-      totalRides: u.totalRides || 0,
-      totalEarnings: u.totalEarnings || 0,
-      isRegistered: u.role === 'DRIVER' ? !!u.vehicleType : true,
-    }
-  } catch (error) {
-    console.error('registerUser error:', error)
-    throw error
+  const u = res.user
+  return {
+    id: u.id,
+    name: u.name,
+    phone: u.phone,
+    role: u.role as Role,
+    walletBalance: u.walletBalance || 0,
+    isVerified: u.isVerified,
+    vehicleType: u.vehicleType,
+    vehicleNumber: u.vehicleNumber,
+    isApproved: u.isApproved,
+    rating: u.rating || 0,
+    totalRides: u.totalRides || 0,
+    totalEarnings: u.totalEarnings || 0,
+    isRegistered: u.role === 'DRIVER' ? !!u.vehicleType : true,
   }
 }
 
@@ -167,6 +147,10 @@ export async function createRide(data: {
   offerCode?: string
   isShared?: boolean
   routeId?: string
+  pickupLat?: number
+  pickupLng?: number
+  dropLat?: number
+  dropLng?: number
 }): Promise<{ success: boolean; ride: Record<string, unknown> }> {
   return apiCall('/rides', {
     method: 'POST',
@@ -263,14 +247,11 @@ export async function getWallet(userId: string): Promise<{ success: boolean; wal
 }
 
 export async function addWalletMoney(userId: string, amount: number): Promise<{ success: boolean; balance: number }> {
-  const res = await apiCall<{ success: boolean; wallet?: { balance: number }; message?: string }>('/wallet', {
+  const res = await apiCall<{ success: boolean; wallet: { balance: number } }>('/wallet', {
     method: 'POST',
     body: JSON.stringify({ userId, amount }),
   })
-  if (res.success && res.wallet) {
-    return { success: true, balance: res.wallet.balance }
-  }
-  return { success: false, balance: 0 }
+  return { success: res.success, balance: res.wallet?.balance || 0 }
 }
 
 export async function getWalletTransactions(userId: string): Promise<{ success: boolean; transactions: Array<Record<string, unknown>> }> {
@@ -413,34 +394,25 @@ export async function broadcastNotification(data: { title: string; message: stri
 }
 
 export async function getFareConfig(): Promise<Record<string, string>> {
-  try {
-    const res = await apiCall<{ success: boolean; settings: Record<string, string> }>('/admin/settings')
-    const config: Record<string, string> = {}
-    if (res.success && res.settings) {
-      const entries = Array.isArray(res.settings)
-        ? res.settings
-        : Object.entries(res.settings).map(([key, value]) => ({ key, value: String(value) }))
-      for (const s of entries) {
-        const sKey = (s as { key: string; value: string }).key
-        const sValue = (s as { key: string; value: string }).value
-        // Map snake_case DB keys to camelCase frontend keys
-        const keyMap: Record<string, string> = {
-          'commission_percentage': 'commission',
-          'tempo_base_fare': 'tempoBaseFare',
-          'tempo_per_km': 'tempoPerKm',
-          'auto_base_fare': 'autoBaseFare',
-          'auto_per_km': 'autoPerKm',
-          'erickshaw_base_fare': 'eRickshawBaseFare',
-          'erickshaw_per_km': 'eRickshawPerKm',
-        }
-        const mappedKey = keyMap[sKey] || sKey
-        config[mappedKey] = sValue
+  const res = await apiCall<{ success: boolean; settings: Array<{ key: string; value: string }> }>('/settings')
+  const config: Record<string, string> = {}
+  if (res.settings) {
+    for (const s of res.settings) {
+      // Map snake_case DB keys to camelCase frontend keys
+      const keyMap: Record<string, string> = {
+        'commission_percentage': 'commission',
+        'tempo_base_fare': 'tempoBaseFare',
+        'tempo_per_km': 'tempoPerKm',
+        'auto_base_fare': 'autoBaseFare',
+        'auto_per_km': 'autoPerKm',
+        'erickshaw_base_fare': 'eRickshawBaseFare',
+        'erickshaw_per_km': 'eRickshawPerKm',
       }
+      const mappedKey = keyMap[s.key] || s.key
+      config[mappedKey] = s.value
     }
-    return config
-  } catch {
-    return {}
   }
+  return config
 }
 
 export async function updateFareConfig(data: Record<string, string>): Promise<{ success: boolean }> {
@@ -454,28 +426,116 @@ export async function updateFareConfig(data: Record<string, string>): Promise<{ 
     'eRickshawBaseFare': 'erickshaw_base_fare',
     'eRickshawPerKm': 'erickshaw_per_km',
   }
-  const settings = Object.entries(data).map(([key, value]) => ({
-    key: keyMap[key] || key,
-    value,
-  }))
-  return apiCall('/admin/settings', {
-    method: 'PATCH',
-    body: JSON.stringify({ settings }),
-  })
+  const updates = Object.entries(data).map(([key, value]) =>
+    apiCall('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ key: keyMap[key] || key, value }),
+    })
+  )
+  await Promise.all(updates)
+  return { success: true }
 }
 
-// Fare calculation helper (client-side)
-export function calculateFare(vehicleType: string, distanceKm: number): { baseFare: number; distanceFare: number; total: number } {
-  const fareConfig: Record<string, { base: number; perKm: number }> = {
+// Geocoding - Search locations using Nominatim
+export interface LocationResult {
+  id: string | number
+  name: string
+  displayName: string
+  fullAddress: string
+  lat: number
+  lng: number
+  type: string
+  category: string
+  importance: number
+}
+
+export async function searchLocations(query: string, lat?: number, lng?: number): Promise<{ success: boolean; results: LocationResult[] }> {
+  const params = new URLSearchParams({ q: query })
+  if (lat !== undefined && lng !== undefined) {
+    params.set('lat', String(lat))
+    params.set('lng', String(lng))
+  }
+  return apiCall(`/geocode/search?${params}`)
+}
+
+export async function reverseGeocode(lat: number, lng: number): Promise<{
+  success: boolean
+  result?: {
+    name: string
+    displayName: string
+    fullAddress: string
+    lat: number
+    lng: number
+    address: Record<string, string>
+    road: string
+    village: string
+    town: string
+    city: string
+    county: string
+    state: string
+  }
+}> {
+  return apiCall(`/geocode/reverse?lat=${lat}&lng=${lng}`)
+}
+
+export async function calculateRouteDistance(lat1: number, lng1: number, lat2: number, lng2: number): Promise<{
+  success: boolean
+  distance?: {
+    straightKm: number
+    roadKm: number
+    durationMin: number
+    source: string
+  }
+}> {
+  return apiCall(`/geocode/route?lat1=${lat1}&lng1=${lng1}&lat2=${lat2}&lng2=${lng2}`)
+}
+
+// Fare calculation helper (client-side, with DB config support)
+let fareConfigCache: Record<string, { base: number; perKm: number }> | null = null
+
+export function calculateFare(vehicleType: string, distanceKm: number, config?: Record<string, { base: number; perKm: number }>): { baseFare: number; distanceFare: number; total: number } {
+  if (config) fareConfigCache = config
+  const fareConfig = fareConfigCache || {
     TEMPO: { base: 15, perKm: 8 },
     AUTO: { base: 20, perKm: 12 },
     E_RICKSHAW: { base: 10, perKm: 6 },
   }
-  const config = fareConfig[vehicleType] || fareConfig.TEMPO
-  const baseFare = config.base
-  const distanceFare = Math.round(distanceKm * config.perKm)
+  const fareType = fareConfig[vehicleType] || fareConfig.TEMPO
+  const baseFare = fareType.base
+  const distanceFare = Math.round(distanceKm * fareType.perKm)
   const total = baseFare + distanceFare
   return { baseFare, distanceFare, total }
+}
+
+// Fetch fare config from database settings
+export async function fetchFareConfig(): Promise<Record<string, { base: number; perKm: number }>> {
+  try {
+    const config = await getFareConfig()
+    const result: Record<string, { base: number; perKm: number }> = {
+      TEMPO: {
+        base: parseInt(config.tempoBaseFare) || 15,
+        perKm: parseInt(config.tempoPerKm) || 8,
+      },
+      AUTO: {
+        base: parseInt(config.autoBaseFare) || 20,
+        perKm: parseInt(config.autoPerKm) || 12,
+      },
+      E_RICKSHAW: {
+        base: parseInt(config.eRickshawBaseFare) || 10,
+        perKm: parseInt(config.eRickshawPerKm) || 6,
+      },
+    }
+    fareConfigCache = result
+    return result
+  } catch {
+    const defaultConfig = {
+      TEMPO: { base: 15, perKm: 8 },
+      AUTO: { base: 20, perKm: 12 },
+      E_RICKSHAW: { base: 10, perKm: 6 },
+    }
+    fareConfigCache = defaultConfig
+    return defaultConfig
+  }
 }
 
 // Admin Login
@@ -530,30 +590,4 @@ export async function updateAdminSettings(settings: Array<{ key: string; value: 
 export async function getAdminDisputes(status?: string): Promise<{ success: boolean; disputes: Array<Record<string, unknown>> }> {
   const params = status ? `?status=${status}` : ''
   return apiCall(`/admin/disputes${params}`)
-}
-
-// ─── UPI / Payment Settings ─────────────────────────────────────────────────
-
-export interface PaymentSettings {
-  upiId: string
-  paymentQrUrl: string
-  paymentInstructions: string
-  upiPaymentEnabled: boolean
-}
-
-export async function getPaymentSettings(): Promise<PaymentSettings> {
-  try {
-    const res = await apiCall<{ success: boolean; settings: Record<string, string> }>('/admin/settings')
-    if (res.success && res.settings) {
-      return {
-        upiId: res.settings.upi_id || '',
-        paymentQrUrl: res.settings.payment_qr_url || '',
-        paymentInstructions: res.settings.payment_instructions || '',
-        upiPaymentEnabled: res.settings.upi_payment_enabled === 'true',
-      }
-    }
-  } catch {
-    // Fallback: return empty settings
-  }
-  return { upiId: '', paymentQrUrl: '', paymentInstructions: '', upiPaymentEnabled: false }
 }

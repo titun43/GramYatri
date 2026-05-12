@@ -16,8 +16,10 @@ export async function GET() {
     return NextResponse.json({ success: true, settings: settingsMap, raw: settings })
   } catch (error) {
     console.error('Get admin settings error:', error)
-    // Return empty settings instead of 500 error for Vercel deployment
-    return NextResponse.json({ success: true, settings: {}, raw: [] })
+    return NextResponse.json(
+      { success: false, message: 'Failed to get settings' },
+      { status: 500 }
+    )
   }
 }
 

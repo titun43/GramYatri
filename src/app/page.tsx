@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, Component, useSyncExternalStore, useCallback } from 'react'
+import { useState, useEffect, Component, useSyncExternalStore } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAppStore } from '@/lib/store'
 import dynamic from 'next/dynamic'
@@ -9,6 +9,7 @@ import dynamic from 'next/dynamic'
 function useHydrated() {
   return useSyncExternalStore(
     (onStoreChange) => {
+      // Subscribe: no-op since hydration state never changes after mount
       return () => {}
     },
     () => true,  // Client snapshot: always true after hydration
@@ -24,6 +25,8 @@ const UserPanel = dynamic(() => import('@/components/gramyatri/UserPanel'), { ss
 const DriverPanel = dynamic(() => import('@/components/gramyatri/DriverPanel'), { ssr: false })
 const AdminPanel = dynamic(() => import('@/components/gramyatri/AdminPanel'), { ssr: false })
 const PWAInstallPrompt = dynamic(() => import('@/components/gramyatri/PWAInstallPrompt'), { ssr: false })
+const APKDownloadGuide = dynamic(() => import('@/components/gramyatri/APKDownloadGuide'), { ssr: false })
+const SetupGuide = dynamic(() => import('@/components/gramyatri/SetupGuide'), { ssr: false })
 
 // Error Boundary
 class ErrorBoundary extends Component<{children: React.ReactNode}, {hasError: boolean, error: string}> {
@@ -63,42 +66,16 @@ export default function Home() {
   const { isLoggedIn, currentRole } = useAppStore()
   const [showSplash, setShowSplash] = useState(true)
   const [showAdminLogin, setShowAdminLogin] = useState(false)
-  const [rehydrated, setRehydrated] = useState(false)
+  const [showAPKGuide, setShowAPKGuide] = useState(false)
+  const [showSetupGuide, setShowSetupGuide] = useState(false)
   const mounted = useHydrated()
 
-  // Wait for Zustand persist to rehydrate from localStorage
   useEffect(() => {
-    const unsub = useAppStore.persist.onFinishHydration(() => {
-      // Use microtask to avoid synchronous setState in effect
-      queueMicrotask(() => setRehydrated(true))
-    })
-    // If already hydrated (e.g. on subsequent renders)
-    if (useAppStore.persist.hasHydrated()) {
-      queueMicrotask(() => setRehydrated(true))
-    }
-    return unsub
+    const timer = setTimeout(() => {
+      setShowSplash(false)
+    }, 2500)
+    return () => clearTimeout(timer)
   }, [])
-
-  // If user is already logged in (from localStorage), skip splash screen
-  const skipSplash = useCallback(() => {
-    setShowSplash(false)
-  }, [])
-
-  // Auto-skip splash for returning users
-  useEffect(() => {
-    if (rehydrated && isLoggedIn) {
-      const timer = setTimeout(skipSplash, 300) // Short splash for returning users
-      return () => clearTimeout(timer)
-    }
-  }, [rehydrated, isLoggedIn, skipSplash])
-
-  // Normal splash timer for new users
-  useEffect(() => {
-    if (!isLoggedIn) {
-      const timer = setTimeout(skipSplash, 2500)
-      return () => clearTimeout(timer)
-    }
-  }, [isLoggedIn, skipSplash])
 
   // Register service worker on mount
   useEffect(() => {
@@ -109,13 +86,43 @@ export default function Home() {
     }
   }, [])
 
-  if (!mounted || !rehydrated) {
+  if (!mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-600 via-emerald-500 to-orange-500">
         <div className="text-center">
           <span className="text-3xl font-black text-white">Gram<span className="text-orange-300">Yatri</span></span>
         </div>
       </div>
+    )
+  }
+
+  // Show Setup Guide
+  if (showSetupGuide) {
+    return (
+      <ErrorBoundary>
+        <SetupGuide />
+        <button
+          onClick={() => setShowSetupGuide(false)}
+          className="fixed top-4 right-4 z-50 bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-lg font-bold hover:bg-emerald-700 transition-all text-sm"
+        >
+          ← Back to App
+        </button>
+      </ErrorBoundary>
+    )
+  }
+
+  // Show APK Download Guide
+  if (showAPKGuide) {
+    return (
+      <ErrorBoundary>
+        <APKDownloadGuide />
+        <button
+          onClick={() => setShowAPKGuide(false)}
+          className="fixed top-4 left-4 z-50 bg-white/90 backdrop-blur-sm text-gray-800 px-4 py-2 rounded-xl shadow-lg font-medium hover:bg-white transition-all"
+        >
+          ← Back to App
+        </button>
+      </ErrorBoundary>
     )
   }
 
@@ -133,8 +140,25 @@ export default function Home() {
                 <AdminLoginScreen onBack={() => setShowAdminLogin(false)} />
               </motion.div>
             ) : (
-              <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1">
+              <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 relative">
                 <LoginScreen onAdminLogin={() => setShowAdminLogin(true)} />
+                {/* Install App floating button on login screen */}
+                <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3">
+                  <button
+                    onClick={() => setShowSetupGuide(true)}
+                    className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white px-5 py-3 rounded-2xl shadow-2xl hover:shadow-xl active:scale-95 transition-all flex items-center gap-2 font-bold text-sm"
+                  >
+                    <span className="text-lg">🔌</span>
+                    Setup Guide
+                  </button>
+                  <button
+                    onClick={() => setShowAPKGuide(true)}
+                    className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-3 rounded-2xl shadow-2xl hover:shadow-xl active:scale-95 transition-all flex items-center gap-2 font-bold text-sm"
+                  >
+                    <span className="text-lg">📱</span>
+                    Install App
+                  </button>
+                </div>
               </motion.div>
             )
           ) : (

@@ -199,6 +199,14 @@ export default function AdminLoginScreen({ onBack }: { onBack: () => void }) {
                 <ArrowLeft className="h-4 w-4" />
                 Back to Login
               </button>
+
+              {/* Test Credentials Hint */}
+              <div className="mt-2 p-3 bg-emerald-50/50 dark:bg-emerald-950/20 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium mb-1">Test Credentials</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-500">
+                  Phone: +919999999999 &nbsp;|&nbsp; Password: admin123
+                </p>
+              </div>
             </CardContent>
           </Card>
         </motion.div>
