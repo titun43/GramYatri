@@ -169,6 +169,64 @@ const LOCAL_KNOWN_COORDS: Record<string, { lat: number; lng: number }> = {
   'lumding junction': { lat: 25.7567, lng: 93.1746 },
 }
 
+// GPS coordinate zones — GPS দিলে এই table থেকে সরাসরি এলাকার নাম বের হবে
+// Nominatim-এর উপর নির্ভর না করে নিজেই detect করবে
+const GPS_ZONES: Array<{ name: string; lat: number; lng: number; radius: number }> = [
+  // Lanka town core
+  { name: 'Lanka Main Bazar', lat: 26.0194, lng: 92.9864, radius: 200 },
+  { name: 'Lanka Railway Station', lat: 26.0186, lng: 92.9871, radius: 250 },
+  { name: 'Lanka Bus Stand', lat: 26.0198, lng: 92.9860, radius: 180 },
+  { name: 'Lanka Public School', lat: 26.0201, lng: 92.9855, radius: 200 },
+  { name: 'Lanka Hospital', lat: 26.0205, lng: 92.9870, radius: 220 },
+  { name: 'Lanka Police Station', lat: 26.0190, lng: 92.9862, radius: 150 },
+  { name: 'Lanka Post Office', lat: 26.0196, lng: 92.9858, radius: 150 },
+  { name: 'Lanka Court', lat: 26.0200, lng: 92.9850, radius: 180 },
+  { name: 'Lanka College', lat: 26.0208, lng: 92.9845, radius: 250 },
+  { name: 'Lanka PWD Office', lat: 26.0185, lng: 92.9855, radius: 150 },
+  // Lanka sub-localities (broader zones)
+  { name: 'Azarbari', lat: 26.0220, lng: 92.9890, radius: 500 },
+  { name: 'Jaysagar Lanka', lat: 26.0175, lng: 92.9845, radius: 450 },
+  { name: 'Nowpara Lanka', lat: 26.0210, lng: 92.9880, radius: 450 },
+  { name: 'Pub Lanka', lat: 26.0215, lng: 92.9900, radius: 500 },
+  { name: 'Paschim Lanka', lat: 26.0180, lng: 92.9830, radius: 500 },
+  { name: 'Lanka Tiniali', lat: 26.0188, lng: 92.9852, radius: 200 },
+  { name: 'Lanka Chariali', lat: 26.0192, lng: 92.9857, radius: 200 },
+  { name: 'Lanka Gaon', lat: 26.0170, lng: 92.9840, radius: 600 },
+  { name: 'Raha Lanka Road', lat: 26.0160, lng: 92.9820, radius: 600 },
+  // Hojai
+  { name: 'Hojai Bus Stand', lat: 26.0028, lng: 92.8560, radius: 250 },
+  { name: 'Hojai Railway Station', lat: 26.0020, lng: 92.8552, radius: 300 },
+  { name: 'Hojai Bazar', lat: 26.0030, lng: 92.8562, radius: 350 },
+  { name: 'Hojai Hospital', lat: 26.0035, lng: 92.8570, radius: 250 },
+  { name: 'Hojai Court', lat: 26.0025, lng: 92.8545, radius: 250 },
+  { name: 'Hojai College', lat: 26.0040, lng: 92.8580, radius: 300 },
+  // Nearby towns
+  { name: 'Lumding Railway Station', lat: 25.7567, lng: 93.1746, radius: 400 },
+  { name: 'Nagaon Town', lat: 26.3466, lng: 92.6843, radius: 800 },
+  { name: 'Nagaon Railway Station', lat: 26.3500, lng: 92.6900, radius: 400 },
+  { name: 'Raha', lat: 26.2167, lng: 92.8333, radius: 700 },
+  { name: 'Chaparmukh', lat: 26.1833, lng: 92.6000, radius: 700 },
+  { name: 'Jagiroad', lat: 26.2833, lng: 92.1833, radius: 700 },
+  { name: 'Doboka', lat: 25.9500, lng: 92.8000, radius: 700 },
+]
+
+// GPS coordinates দিলে haversine formula দিয়ে সবচেয়ে কাছের zone detect করে নাম দেয়
+function detectZoneFromCoords(lat: number, lng: number): string | null {
+  const toRad = (d: number) => d * Math.PI / 180
+  const R = 6371000
+  let best: { name: string; dist: number } | null = null
+  for (const zone of GPS_ZONES) {
+    const dLat = toRad(lat - zone.lat)
+    const dLng = toRad(lng - zone.lng)
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat)) * Math.cos(toRad(zone.lat)) * Math.sin(dLng/2)**2
+    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    if (dist <= zone.radius) {
+      if (!best || dist < best.dist) best = { name: zone.name, dist }
+    }
+  }
+  return best ? best.name : null
+}
+
 // Bilingual translations — English & Assamese
 type Lang = 'en' | 'as'
 const T: Record<string, Record<Lang, string>> = {
@@ -282,6 +340,148 @@ interface UserNotification {
 // No mock notifications — only real notifications from the database
 const EMPTY_NOTIFICATIONS: UserNotification[] = []
 
+// MapPickerScript — Leaflet map loader, pin drag করলে address reverse geocode করে
+function MapPickerScript({
+  onReady,
+  initialLat,
+  initialLng,
+}: {
+  onReady: (lat: number, lng: number, addr: string) => void
+  initialLat: number
+  initialLng: number
+}) {
+  const initialized = useRef(false)
+  const onReadyRef = useRef(onReady)
+  useEffect(() => { onReadyRef.current = onReady }, [onReady])
+
+  useEffect(() => {
+    if (initialized.current) return
+    initialized.current = true
+
+    const loadLeaflet = () => {
+      return new Promise<void>((resolve) => {
+        if ((window as unknown as Record<string, unknown>)['L']) { resolve(); return }
+
+        // Load Leaflet CSS
+        const css = document.createElement('link')
+        css.rel = 'stylesheet'
+        css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+        document.head.appendChild(css)
+
+        // Load Leaflet JS
+        const script = document.createElement('script')
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+        script.onload = () => resolve()
+        document.head.appendChild(script)
+      })
+    }
+
+    const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
+      try {
+        // Zone detect আগে চেষ্টা করো
+        const zone = detectZoneFromCoords(lat, lng)
+        if (zone) return zone
+
+        // তারপর Nominatim
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=as,en`,
+          { headers: { 'User-Agent': 'GramYatri/2.0' } }
+        )
+        if (!res.ok) return ''
+        const data = await res.json()
+        if (data.error) return ''
+        const addr = data.address || {}
+        const parts: string[] = []
+        const micro = addr.neighbourhood || addr.quarter || addr.hamlet || addr.residential
+        if (micro) parts.push(micro)
+        const village = addr.village || addr.suburb || addr.town
+        if (village && !parts.includes(village)) parts.push(village)
+        if (parts.length === 0) {
+          const road = addr.road || addr.pedestrian
+          if (road) parts.push(road)
+        }
+        return parts.slice(0, 2).join(', ')
+      } catch { return '' }
+    }
+
+    loadLeaflet().then(() => {
+      const L = (window as unknown as Record<string, unknown>)['L'] as {
+        map: (id: string, opts: Record<string, unknown>) => {
+          setView: (latlng: [number, number], zoom: number) => void
+          on: (event: string, fn: (e: { latlng: { lat: number; lng: number } }) => void) => void
+          remove: () => void
+        }
+        tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (map: unknown) => void }
+        marker: (latlng: [number, number], opts: Record<string, unknown>) => {
+          addTo: (map: unknown) => unknown
+          setLatLng: (latlng: [number, number]) => void
+        }
+        icon: (opts: Record<string, unknown>) => unknown
+        DivIcon: new (opts: Record<string, unknown>) => unknown
+      }
+
+      const container = document.getElementById('gramyatri-map-picker')
+      if (!container) return
+
+      const map = L.map('gramyatri-map-picker', { zoomControl: true })
+      map.setView([initialLat, initialLng], 17)
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(map)
+
+      // Custom red pin icon
+      const pinIcon = new L.DivIcon({
+        className: '',
+        html: `<div style="
+          width:32px;height:40px;
+          background:#ef4444;
+          border-radius:50% 50% 50% 0;
+          transform:rotate(-45deg);
+          border:3px solid #fff;
+          box-shadow:0 2px 8px rgba(0,0,0,0.4);
+          position:relative;
+        "><div style="
+          position:absolute;top:50%;left:50%;
+          transform:translate(-50%,-50%) rotate(45deg);
+          width:10px;height:10px;
+          background:#fff;border-radius:50%;
+        "></div></div>`,
+        iconSize: [32, 40],
+        iconAnchor: [16, 40],
+      })
+
+      const marker = L.marker([initialLat, initialLng], { icon: pinIcon, draggable: true } as Record<string, unknown>).addTo(map)
+
+      // Initial address
+      reverseGeocode(initialLat, initialLng).then(addr => onReadyRef.current(initialLat, initialLng, addr))
+
+      // Map tap — pin move করে
+      map.on('click', async (e) => {
+        const { lat, lng } = e.latlng
+        marker.setLatLng([lat, lng])
+        const addr = await reverseGeocode(lat, lng)
+        onReadyRef.current(lat, lng, addr)
+      })
+
+      // Pin drag করলেও update হবে
+      const markerEl = marker as unknown as {
+        on: (event: string, fn: () => void) => void
+        getLatLng: () => { lat: number; lng: number }
+      }
+      markerEl.on('dragend', async () => {
+        const { lat, lng } = markerEl.getLatLng()
+        const addr = await reverseGeocode(lat, lng)
+        onReadyRef.current(lat, lng, addr)
+      })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // intentionally empty — map init runs once only
+
+  return null
+}
+
 export default function UserPanel() {
   const { currentUser, activeRide, setActiveRide, logout, updateWalletBalance, notifications, markNotificationRead } = useAppStore()
   const { emitRideRequest } = useSocket()
@@ -371,6 +571,9 @@ export default function UserPanel() {
   const [showPickupSuggestions, setShowPickupSuggestions] = useState(false)
   const [showDropSuggestions, setShowDropSuggestions] = useState(false)
   const [gpsDetecting, setGpsDetecting] = useState(false)
+  const [showMapPicker, setShowMapPicker] = useState(false)
+  const [mapPickerTarget, setMapPickerTarget] = useState<'pickup' | 'drop'>('pickup')
+  const [mapPickerAddress, setMapPickerAddress] = useState('')
   const [liveTrackingEta, setLiveTrackingEta] = useState(3)
   const [driverProgress, setDriverProgress] = useState(25)
   const [trackingStatusIndex, setTrackingStatusIndex] = useState(0)
@@ -401,96 +604,132 @@ export default function UserPanel() {
   const discountedFare = offerApplied ? Math.max(0, fare.total - offerDiscount) : fare.total
   const perKmRate = vehicleType === 'TEMPO' ? 8 : vehicleType === 'AUTO' ? 12 : 6
 
-  // ─── OSRM Distance Calculation ────────────────────────────────────
-  const calculateRouteDistance = useCallback(async (pCoords: { lat: number; lng: number }, dCoords: { lat: number; lng: number }) => {
+  // ─── Distance Calculation — OSRM real road routing ─────────────────
+  const calculateRouteDistance = useCallback(async (
+    pCoords: { lat: number; lng: number },
+    dCoords: { lat: number; lng: number }
+  ) => {
     setDistanceLoading(true)
+
+    // Haversine helper (straight-line)
+    const haversine = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+      const R = 6371
+      const dLat = (b.lat - a.lat) * Math.PI / 180
+      const dLon = (b.lng - a.lng) * Math.PI / 180
+      const h = Math.sin(dLat/2)**2 +
+        Math.cos(a.lat * Math.PI/180) * Math.cos(b.lat * Math.PI/180) * Math.sin(dLon/2)**2
+      return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1-h))
+    }
+
+    const straightKm = haversine(pCoords, dCoords)
+
     try {
-      // Use OSRM (Open Source Routing Machine) for real road distance
-      const res = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${pCoords.lng},${pCoords.lat};${dCoords.lng},${dCoords.lat}?overview=false`,
-        { headers: { 'User-Agent': 'GramYatri/2.0' } }
+      // Try OSRM first — real road distance
+      const osrmRes = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${pCoords.lng},${pCoords.lat};${dCoords.lng},${dCoords.lat}?overview=false&alternatives=false`,
+        { signal: AbortSignal.timeout(8000) }
       )
-      if (res.ok) {
-        const data = await res.json()
-        if (data.routes && data.routes.length > 0) {
-          const distKm = Math.round((data.routes[0].distance / 1000) * 10) / 10 // round to 1 decimal
-          setDistance(distKm)
-          return
+      if (osrmRes.ok) {
+        const osrmData = await osrmRes.json()
+        if (osrmData.code === 'Ok' && osrmData.routes?.length > 0) {
+          const roadKm = Math.round((osrmData.routes[0].distance / 1000) * 10) / 10
+          // Sanity check: road distance should be >= straight-line and not absurdly large
+          if (roadKm >= straightKm * 0.9 && roadKm <= straightKm * 5) {
+            setDistance(roadKm)
+            setDistanceLoading(false)
+            return
+          }
         }
       }
-      // Fallback: Haversine straight-line distance * 1.3 (road factor)
-      const R = 6371
-      const dLat = (dCoords.lat - pCoords.lat) * Math.PI / 180
-      const dLon = (dCoords.lng - pCoords.lng) * Math.PI / 180
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(pCoords.lat * Math.PI / 180) * Math.cos(dCoords.lat * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2)
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-      const straightLine = R * c
-      setDistance(Math.round(straightLine * 1.3 * 10) / 10)
-    } catch {
-      // Fallback: Haversine
-      const R = 6371
-      const dLat = (dCoords.lat - pCoords.lat) * Math.PI / 180
-      const dLon = (dCoords.lng - pCoords.lng) * Math.PI / 180
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(pCoords.lat * Math.PI / 180) * Math.cos(dCoords.lat * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2)
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-      const straightLine = R * c
-      setDistance(Math.round(straightLine * 1.3 * 10) / 10)
-    } finally {
-      setDistanceLoading(false)
-    }
-  }, [])
-
-  // Geocode a location name to coordinates using Nominatim
-  const geocodeLocation = useCallback(async (locationName: string): Promise<{ lat: number; lng: number } | null> => {
-    const cleanName = locationName.replace('(GPS)', '').trim()
-
-    // 1. Check local known coordinates first (instant, no network needed)
-    const localKey = cleanName.toLowerCase()
-    if (LOCAL_KNOWN_COORDS[localKey]) {
-      return LOCAL_KNOWN_COORDS[localKey]
-    }
+    } catch { /* OSRM failed, use fallback */ }
 
     try {
-      // 2. Try with STRICT Assam bounding box + countrycodes=IN to avoid wrong countries
-      // viewbox: lon_min,lat_max,lon_max,lat_min (West Assam to East Assam)
-      // bounded=1 forces results to stay within viewbox
-      const assamQuery = `${cleanName}, Assam`
+      // Fallback: OSRM demo server (alternative endpoint)
+      const osrmRes2 = await fetch(
+        `https://routing.openstreetmap.de/routed-car/route/v1/driving/${pCoords.lng},${pCoords.lat};${dCoords.lng},${dCoords.lat}?overview=false`,
+        { signal: AbortSignal.timeout(8000) }
+      )
+      if (osrmRes2.ok) {
+        const d2 = await osrmRes2.json()
+        if (d2.routes?.length > 0) {
+          const roadKm2 = Math.round((d2.routes[0].distance / 1000) * 10) / 10
+          if (roadKm2 >= straightKm * 0.9 && roadKm2 <= straightKm * 5) {
+            setDistance(roadKm2)
+            setDistanceLoading(false)
+            return
+          }
+        }
+      }
+    } catch { /* second OSRM also failed */ }
+
+    // Final fallback: straight-line × 1.4 (Assam rural road winding factor)
+    const estimated = Math.round(straightKm * 1.4 * 10) / 10
+    setDistance(estimated)
+    setDistanceLoading(false)
+  }, [])
+
+  // Geocode a location name → exact coordinates
+  // Priority: 1) Local table  2) GPS_ZONES fuzzy  3) Nominatim Assam  4) Nominatim India (closest to Lanka)
+  const geocodeLocation = useCallback(async (locationName: string): Promise<{ lat: number; lng: number } | null> => {
+    const cleanName = locationName.replace('(GPS)', '').replace('(Map)', '').trim()
+    const lowerName = cleanName.toLowerCase()
+
+    // 1. Exact match in LOCAL_KNOWN_COORDS
+    if (LOCAL_KNOWN_COORDS[lowerName]) return LOCAL_KNOWN_COORDS[lowerName]
+
+    // 2. Partial match in LOCAL_KNOWN_COORDS (e.g. "Lanka Bazar" matches "lanka bazar")
+    for (const [key, coords] of Object.entries(LOCAL_KNOWN_COORDS)) {
+      if (lowerName.includes(key) || key.includes(lowerName)) return coords
+    }
+
+    // 3. Fuzzy match in GPS_ZONES by name
+    for (const zone of GPS_ZONES) {
+      const zLower = zone.name.toLowerCase()
+      if (lowerName.includes(zLower) || zLower.includes(lowerName)) {
+        return { lat: zone.lat, lng: zone.lng }
+      }
+    }
+
+    // 4. Nominatim — strictly within Assam bounding box
+    try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(assamQuery)}&viewbox=89.5,27.5,96.5,24.0&bounded=1&limit=5&countrycodes=in&accept-language=as,en`,
-        { headers: { 'User-Agent': 'GramYatri/2.0' } }
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanName + ', Assam')}&viewbox=89.5,27.5,96.5,24.0&bounded=1&limit=5&countrycodes=in&accept-language=as,en`,
+        { headers: { 'User-Agent': 'GramYatri/2.0' }, signal: AbortSignal.timeout(6000) }
       )
       if (res.ok) {
         const data = await res.json()
         if (data.length > 0) {
-          return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+          // Pick closest result to Lanka/Hojai centre (lat 26.01, lng 92.93)
+          const cLat = 26.01, cLng = 92.93
+          const best = data.reduce((p: {lat:string;lon:string}, c: {lat:string;lon:string}) =>
+            (Math.abs(+c.lat-cLat)+Math.abs(+c.lon-cLng)) < (Math.abs(+p.lat-cLat)+Math.abs(+p.lon-cLng)) ? c : p
+          )
+          const lat = parseFloat(best.lat), lng = parseFloat(best.lon)
+          // Sanity: must be within Assam lat/lng range
+          if (lat > 24 && lat < 28 && lng > 89 && lng < 97) return { lat, lng }
         }
       }
+    } catch { /* timeout or network error */ }
 
-      // 3. Broader India search (still restricted to India)
+    // 5. Nominatim — broader India search, still pick closest to Lanka
+    try {
       const res2 = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanName + ', Assam, India')}&limit=3&countrycodes=in&accept-language=as,en`,
-        { headers: { 'User-Agent': 'GramYatri/2.0' } }
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanName + ', India')}&limit=5&countrycodes=in&accept-language=as,en`,
+        { headers: { 'User-Agent': 'GramYatri/2.0' }, signal: AbortSignal.timeout(6000) }
       )
       if (res2.ok) {
         const data2 = await res2.json()
-        // Pick result closest to Lanka/Hojai area (lat~26, lng~92.9)
         if (data2.length > 0) {
-          const centerLat = 26.01, centerLng = 92.93
-          const best = data2.reduce((prev: { lat: string; lon: string }, curr: { lat: string; lon: string }) => {
-            const dPrev = Math.abs(parseFloat(prev.lat) - centerLat) + Math.abs(parseFloat(prev.lon) - centerLng)
-            const dCurr = Math.abs(parseFloat(curr.lat) - centerLat) + Math.abs(parseFloat(curr.lon) - centerLng)
-            return dCurr < dPrev ? curr : prev
-          })
-          return { lat: parseFloat(best.lat), lng: parseFloat(best.lon) }
+          const cLat = 26.01, cLng = 92.93
+          const best2 = data2.reduce((p: {lat:string;lon:string}, c: {lat:string;lon:string}) =>
+            (Math.abs(+c.lat-cLat)+Math.abs(+c.lon-cLng)) < (Math.abs(+p.lat-cLat)+Math.abs(+p.lon-cLng)) ? c : p
+          )
+          const lat2 = parseFloat(best2.lat), lng2 = parseFloat(best2.lon)
+          if (lat2 > 24 && lat2 < 28 && lng2 > 89 && lng2 < 97) return { lat: lat2, lng: lng2 }
         }
       }
-    } catch {
-      // geocoding failed
-    }
+    } catch { /* failed */ }
+
     return null
   }, [])
 
@@ -528,6 +767,12 @@ export default function UserPanel() {
         await calculateRouteDistance(pCoords, dCoords)
       } else {
         setDistanceLoading(false)
+        // Coordinates পাওয়া যায়নি — user-কে জানাও
+        if (!pCoords && pickup) {
+          toast.error('Pickup location চেনা গেল না। Map থেকে select করো।')
+        } else if (!dCoords && drop) {
+          toast.error('Drop location চেনা গেল না। Map থেকে select করো।')
+        }
       }
     }
 
@@ -819,8 +1064,15 @@ export default function UserPanel() {
         setUserLng(lng)
 
         try {
-          // zoom=18 = building level, zoom=16 = street, zoom=14 = village
-          // Try highest zoom first for most precise name
+          // Step 1: নিজের GPS_ZONES table থেকে আগে check করো (সবচেয়ে accurate)
+          const zoneName = detectZoneFromCoords(lat, lng)
+          if (zoneName) {
+            setPickup(prev => prev || zoneName + ' (GPS)')
+            setPickupCoords({ lat, lng })
+            return
+          }
+
+          // Step 2: Zone না পেলে Nominatim দিয়ে try করো
           const tryReverse = async (zoom: number): Promise<string> => {
             const res = await fetch(
               `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&namedetails=1&accept-language=as,en`,
@@ -830,26 +1082,18 @@ export default function UserPanel() {
             const data = await res.json()
             if (data.error) return ''
             const addr = data.address || {}
-
             const parts: string[] = []
-            // Most specific first: neighbourhood/quarter/suburb
             const micro = addr.neighbourhood || addr.quarter || addr.residential || addr.hamlet
             if (micro) parts.push(micro)
-            // Village or suburb
             const village = addr.village || addr.suburb || addr.town
             if (village && !parts.includes(village)) parts.push(village)
-            // Road if no micro detail
             if (parts.length === 0) {
               const road = addr.road || addr.pedestrian
               if (road) parts.push(road)
             }
-            // City/district
             const city = addr.city || addr.county || addr.state_district
             if (city && !parts.includes(city)) parts.push(city)
-
-            return parts.length > 0
-              ? parts.slice(0, 2).join(', ') + ' (GPS)'
-              : ''
+            return parts.length > 0 ? parts.slice(0, 2).join(', ') + ' (GPS)' : ''
           }
 
           let locationName = await tryReverse(18)
@@ -859,9 +1103,7 @@ export default function UserPanel() {
             locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
           }
 
-          // Only set pickup if it's currently empty
           setPickup(prev => prev || locationName)
-          // Also set pickup coordinates so distance calculation works immediately
           setPickupCoords({ lat, lng })
         } catch {
           // Silent fail for auto-detect
@@ -965,6 +1207,28 @@ export default function UserPanel() {
     }, 400)
   }, [])
 
+  // Map picker খোলার handler
+  const openMapPicker = (target: 'pickup' | 'drop') => {
+    setMapPickerTarget(target)
+    setMapPickerAddress('')
+    setShowMapPicker(true)
+  }
+
+  // Map picker থেকে location confirm হলে
+  const handleMapPickerConfirm = (lat: number, lng: number, address: string) => {
+    const label = address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+    if (mapPickerTarget === 'pickup') {
+      setPickup(label)
+      setPickupCoords({ lat, lng })
+      setShowPickupSuggestions(false)
+    } else {
+      setDrop(label)
+      setDropCoords({ lat, lng })
+      setShowDropSuggestions(false)
+    }
+    setShowMapPicker(false)
+  }
+
   const handleGpsDetect = async (target: 'pickup' | 'drop') => {
     setGpsDetecting(true)
 
@@ -1027,26 +1291,30 @@ export default function UserPanel() {
           }
         }
 
-        let locationName = ''
-        try {
-          // Try zoom=18 (building/street level) first for most precise name
-          locationName = await reverseGeocode(18)
-          // If nothing at 18, try zoom=16 (street level)
-          if (!locationName || locationName === ' (GPS)') {
-            locationName = await reverseGeocode(16)
+        // Step 1: নিজের GPS_ZONES table থেকে সবার আগে check (সবচেয়ে accurate)
+        const zoneName = detectZoneFromCoords(lat, lng)
+        let locationName = zoneName ? zoneName + ' (GPS)' : ''
+
+        // Step 2: Zone না পেলে Nominatim দিয়ে try
+        if (!locationName) {
+          try {
+            locationName = await reverseGeocode(18)
+            if (!locationName || locationName === ' (GPS)') {
+              locationName = await reverseGeocode(16)
+            }
+            if (!locationName || locationName === ' (GPS)') {
+              locationName = await reverseGeocode(14)
+            }
+          } catch {
+            // Reverse geocoding failed
           }
-          // If still nothing, try zoom=14 (village level)
-          if (!locationName || locationName === ' (GPS)') {
-            locationName = await reverseGeocode(14)
-          }
-        } catch {
-          // Reverse geocoding failed
         }
 
         if (!locationName) {
           locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
         }
 
+        // GPS detect হওয়ার পর map খুলবে যাতে pin adjust করা যায়
         if (target === 'pickup') {
           setPickup(locationName)
           setPickupCoords({ lat, lng })
@@ -1056,8 +1324,12 @@ export default function UserPanel() {
           setDropCoords({ lat, lng })
           setShowDropSuggestions(false)
         }
-        toast.success('অৱস্থান চিনাক্ত হ\'ল! / Location detected!')
         setGpsDetecting(false)
+        toast.success('অৱস্থান চিনাক্ত হ\'ল! Map-এ pin adjust করতে পারো।')
+        // Map খুলবে detected location-এ, user চাইলে pin সরাতে পারবে
+        setMapPickerTarget(target)
+        setMapPickerAddress(locationName)
+        setShowMapPicker(true)
       },
       (error) => {
         // GPS failed — show specific error message
@@ -1378,6 +1650,76 @@ export default function UserPanel() {
     <div className="min-h-screen flex flex-col bg-muted/30">
       {/* Offline Booking Indicator */}
       <OfflineBookingIndicator />
+
+      {/* ===================== MAP PICKER MODAL ===================== */}
+      {showMapPicker && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: '#fff', display: 'flex', flexDirection: 'column'
+        }}>
+          {/* Header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '12px 16px', background: '#1e293b', color: '#fff',
+            flexShrink: 0
+          }}>
+            <button
+              onClick={() => setShowMapPicker(false)}
+              style={{ background: 'none', border: 'none', color: '#fff', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}
+            >&#8592;</button>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>
+                {mapPickerTarget === 'pickup' ? 'Pickup location বেছে নাও' : 'Drop location বেছে নাও'}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.75 }}>Map-এ tap করো বা pin drag করো</div>
+            </div>
+          </div>
+
+          {/* Address preview bar */}
+          <div style={{
+            padding: '10px 16px', background: '#f1f5f9',
+            borderBottom: '1px solid #e2e8f0', flexShrink: 0,
+            fontSize: 13, color: '#334155', minHeight: 40
+          }}>
+            {mapPickerAddress || 'Map-এ কোনো জায়গায় tap করো...'}
+          </div>
+
+          {/* Leaflet Map */}
+          <div id="gramyatri-map-picker" style={{ flex: 1, width: '100%' }} />
+
+          {/* Confirm button */}
+          <div style={{ padding: '12px 16px', background: '#fff', flexShrink: 0 }}>
+            <button
+              id="map-confirm-btn"
+              onClick={() => {
+                const btn = document.getElementById('map-confirm-btn') as HTMLButtonElement
+                const lat = parseFloat(btn.dataset.lat || '0')
+                const lng = parseFloat(btn.dataset.lng || '0')
+                const addr = btn.dataset.addr || ''
+                if (lat && lng) handleMapPickerConfirm(lat, lng, addr)
+              }}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 12,
+                background: '#16a34a', color: '#fff', fontWeight: 700,
+                fontSize: 16, border: 'none', cursor: 'pointer'
+              }}
+            >
+              ✓ এই জায়গা confirm করো
+            </button>
+          </div>
+
+          {/* Leaflet init script */}
+          <MapPickerScript
+            onReady={(lat, lng, addr) => {
+              setMapPickerAddress(addr)
+              const btn = document.getElementById('map-confirm-btn') as HTMLButtonElement
+              if (btn) { btn.dataset.lat = String(lat); btn.dataset.lng = String(lng); btn.dataset.addr = addr }
+            }}
+            initialLat={mapPickerTarget === 'pickup' ? (pickupCoords?.lat ?? userLat ?? 26.0194) : (dropCoords?.lat ?? userLat ?? 26.0194)}
+            initialLng={mapPickerTarget === 'pickup' ? (pickupCoords?.lng ?? userLng ?? 92.9864) : (dropCoords?.lng ?? userLng ?? 92.9864)}
+          />
+        </div>
+      )}
 
       {/* ===================== SEARCHING OVERLAY ===================== */}
       <AnimatePresence>
@@ -1841,12 +2183,24 @@ export default function UserPanel() {
                       </div>
                       <div className="flex-1 space-y-2">
                         <div className="relative" ref={pickupRef}>
-                          <Input
-                            placeholder="Pickup location"
-                            value={pickup}
-                            onChange={(e) => handlePickupChange(e.target.value)}
-                            onFocus={() => { if (pickupSuggestions.length > 0) setShowPickupSuggestions(true) }}
-                          />
+                          <div className="flex gap-1">
+                            <Input
+                              placeholder="📍 Pickup — tap করে map থেকে বেছে নাও"
+                              value={pickup}
+                              readOnly
+                              onClick={() => openMapPicker('pickup')}
+                              className="flex-1 cursor-pointer"
+                              style={{ caretColor: 'transparent' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => openMapPicker('pickup')}
+                              style={{ padding:'0 10px', borderRadius:8, background:'#16a34a', border:'none', cursor:'pointer', flexShrink:0 }}
+                              title="Map থেকে বেছে নাও"
+                            >
+                              <MapPin size={16} color="#fff" />
+                            </button>
+                          </div>
                           <AnimatePresence>
                             {showPickupSuggestions && (
                               <motion.div
@@ -1870,12 +2224,24 @@ export default function UserPanel() {
                           </AnimatePresence>
                         </div>
                         <div className="relative" ref={dropRef}>
-                          <Input
-                            placeholder="Drop location"
-                            value={drop}
-                            onChange={(e) => handleDropChange(e.target.value)}
-                            onFocus={() => { if (dropSuggestions.length > 0) setShowDropSuggestions(true) }}
-                          />
+                          <div className="flex gap-1">
+                            <Input
+                              placeholder="🏁 Drop — tap করে map থেকে বেছে নাও"
+                              value={drop}
+                              readOnly
+                              onClick={() => openMapPicker('drop')}
+                              className="flex-1 cursor-pointer"
+                              style={{ caretColor: 'transparent' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => openMapPicker('drop')}
+                              style={{ padding:'0 10px', borderRadius:8, background:'#f97316', border:'none', cursor:'pointer', flexShrink:0 }}
+                              title="Map থেকে বেছে নাও"
+                            >
+                              <MapPin size={16} color="#fff" />
+                            </button>
+                          </div>
                           <AnimatePresence>
                             {showDropSuggestions && (
                               <motion.div
