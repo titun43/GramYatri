@@ -129,7 +129,7 @@ const LOCATION_SUGGESTIONS = [
   'Lanka Court', 'Lanka Town Hall', 'Lanka Post Office', 'Lanka ATM',
   'Lanka Petrol Pump', 'Lanka Mosque', 'Lanka Mandir', 'Lanka PWD Office',
   // Lanka area sub-localities
-  'Azarbari', 'Kaki', 'Kaki Soni Bazar', 'Jaysagar Lanka', 'Nowpara Lanka', 'Pub Lanka', 'Paschim Lanka',
+  'Azarbari', 'Jaysagar Lanka', 'Nowpara Lanka', 'Pub Lanka', 'Paschim Lanka',
   'Raha Lanka Road', 'Lanka Tiniali', 'Lanka Chariali', 'Lanka Gaon',
   'Lanka Ward No 1', 'Lanka Ward No 2', 'Lanka Ward No 3',
   // Hojai district
@@ -340,6 +340,148 @@ interface UserNotification {
 // No mock notifications — only real notifications from the database
 const EMPTY_NOTIFICATIONS: UserNotification[] = []
 
+// MapPickerScript — Leaflet map loader, pin drag করলে address reverse geocode করে
+function MapPickerScript({
+  onReady,
+  initialLat,
+  initialLng,
+}: {
+  onReady: (lat: number, lng: number, addr: string) => void
+  initialLat: number
+  initialLng: number
+}) {
+  const initialized = useRef(false)
+  const onReadyRef = useRef(onReady)
+  useEffect(() => { onReadyRef.current = onReady }, [onReady])
+
+  useEffect(() => {
+    if (initialized.current) return
+    initialized.current = true
+
+    const loadLeaflet = () => {
+      return new Promise<void>((resolve) => {
+        if ((window as unknown as Record<string, unknown>)['L']) { resolve(); return }
+
+        // Load Leaflet CSS
+        const css = document.createElement('link')
+        css.rel = 'stylesheet'
+        css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+        document.head.appendChild(css)
+
+        // Load Leaflet JS
+        const script = document.createElement('script')
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+        script.onload = () => resolve()
+        document.head.appendChild(script)
+      })
+    }
+
+    const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
+      try {
+        // Zone detect আগে চেষ্টা করো
+        const zone = detectZoneFromCoords(lat, lng)
+        if (zone) return zone
+
+        // তারপর Nominatim
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=as,en`,
+          { headers: { 'User-Agent': 'GramYatri/2.0' } }
+        )
+        if (!res.ok) return ''
+        const data = await res.json()
+        if (data.error) return ''
+        const addr = data.address || {}
+        const parts: string[] = []
+        const micro = addr.neighbourhood || addr.quarter || addr.hamlet || addr.residential
+        if (micro) parts.push(micro)
+        const village = addr.village || addr.suburb || addr.town
+        if (village && !parts.includes(village)) parts.push(village)
+        if (parts.length === 0) {
+          const road = addr.road || addr.pedestrian
+          if (road) parts.push(road)
+        }
+        return parts.slice(0, 2).join(', ')
+      } catch { return '' }
+    }
+
+    loadLeaflet().then(() => {
+      const L = (window as unknown as Record<string, unknown>)['L'] as {
+        map: (id: string, opts: Record<string, unknown>) => {
+          setView: (latlng: [number, number], zoom: number) => void
+          on: (event: string, fn: (e: { latlng: { lat: number; lng: number } }) => void) => void
+          remove: () => void
+        }
+        tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (map: unknown) => void }
+        marker: (latlng: [number, number], opts: Record<string, unknown>) => {
+          addTo: (map: unknown) => unknown
+          setLatLng: (latlng: [number, number]) => void
+        }
+        icon: (opts: Record<string, unknown>) => unknown
+        DivIcon: new (opts: Record<string, unknown>) => unknown
+      }
+
+      const container = document.getElementById('gramyatri-map-picker')
+      if (!container) return
+
+      const map = L.map('gramyatri-map-picker', { zoomControl: true })
+      map.setView([initialLat, initialLng], 17)
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(map)
+
+      // Custom red pin icon
+      const pinIcon = new L.DivIcon({
+        className: '',
+        html: `<div style="
+          width:32px;height:40px;
+          background:#ef4444;
+          border-radius:50% 50% 50% 0;
+          transform:rotate(-45deg);
+          border:3px solid #fff;
+          box-shadow:0 2px 8px rgba(0,0,0,0.4);
+          position:relative;
+        "><div style="
+          position:absolute;top:50%;left:50%;
+          transform:translate(-50%,-50%) rotate(45deg);
+          width:10px;height:10px;
+          background:#fff;border-radius:50%;
+        "></div></div>`,
+        iconSize: [32, 40],
+        iconAnchor: [16, 40],
+      })
+
+      const marker = L.marker([initialLat, initialLng], { icon: pinIcon, draggable: true } as Record<string, unknown>).addTo(map)
+
+      // Initial address
+      reverseGeocode(initialLat, initialLng).then(addr => onReadyRef.current(initialLat, initialLng, addr))
+
+      // Map tap — pin move করে
+      map.on('click', async (e) => {
+        const { lat, lng } = e.latlng
+        marker.setLatLng([lat, lng])
+        const addr = await reverseGeocode(lat, lng)
+        onReadyRef.current(lat, lng, addr)
+      })
+
+      // Pin drag করলেও update হবে
+      const markerEl = marker as unknown as {
+        on: (event: string, fn: () => void) => void
+        getLatLng: () => { lat: number; lng: number }
+      }
+      markerEl.on('dragend', async () => {
+        const { lat, lng } = markerEl.getLatLng()
+        const addr = await reverseGeocode(lat, lng)
+        onReadyRef.current(lat, lng, addr)
+      })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // intentionally empty — map init runs once only
+
+  return null
+}
+
 export default function UserPanel() {
   const { currentUser, activeRide, setActiveRide, logout, updateWalletBalance, notifications, markNotificationRead } = useAppStore()
   const { emitRideRequest } = useSocket()
@@ -429,6 +571,9 @@ export default function UserPanel() {
   const [showPickupSuggestions, setShowPickupSuggestions] = useState(false)
   const [showDropSuggestions, setShowDropSuggestions] = useState(false)
   const [gpsDetecting, setGpsDetecting] = useState(false)
+  const [showMapPicker, setShowMapPicker] = useState(false)
+  const [mapPickerTarget, setMapPickerTarget] = useState<'pickup' | 'drop'>('pickup')
+  const [mapPickerAddress, setMapPickerAddress] = useState('')
   const [liveTrackingEta, setLiveTrackingEta] = useState(3)
   const [driverProgress, setDriverProgress] = useState(25)
   const [trackingStatusIndex, setTrackingStatusIndex] = useState(0)
@@ -1020,6 +1165,28 @@ export default function UserPanel() {
     }, 400)
   }, [])
 
+  // Map picker খোলার handler
+  const openMapPicker = (target: 'pickup' | 'drop') => {
+    setMapPickerTarget(target)
+    setMapPickerAddress('')
+    setShowMapPicker(true)
+  }
+
+  // Map picker থেকে location confirm হলে
+  const handleMapPickerConfirm = (lat: number, lng: number, address: string) => {
+    const label = address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+    if (mapPickerTarget === 'pickup') {
+      setPickup(label)
+      setPickupCoords({ lat, lng })
+      setShowPickupSuggestions(false)
+    } else {
+      setDrop(label)
+      setDropCoords({ lat, lng })
+      setShowDropSuggestions(false)
+    }
+    setShowMapPicker(false)
+  }
+
   const handleGpsDetect = async (target: 'pickup' | 'drop') => {
     setGpsDetecting(true)
 
@@ -1105,6 +1272,7 @@ export default function UserPanel() {
           locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
         }
 
+        // GPS detect হওয়ার পর map খুলবে যাতে pin adjust করা যায়
         if (target === 'pickup') {
           setPickup(locationName)
           setPickupCoords({ lat, lng })
@@ -1114,8 +1282,12 @@ export default function UserPanel() {
           setDropCoords({ lat, lng })
           setShowDropSuggestions(false)
         }
-        toast.success('অৱস্থান চিনাক্ত হ\'ল! / Location detected!')
         setGpsDetecting(false)
+        toast.success('অৱস্থান চিনাক্ত হ\'ল! Map-এ pin adjust করতে পারো।')
+        // Map খুলবে detected location-এ, user চাইলে pin সরাতে পারবে
+        setMapPickerTarget(target)
+        setMapPickerAddress(locationName)
+        setShowMapPicker(true)
       },
       (error) => {
         // GPS failed — show specific error message
@@ -1436,6 +1608,76 @@ export default function UserPanel() {
     <div className="min-h-screen flex flex-col bg-muted/30">
       {/* Offline Booking Indicator */}
       <OfflineBookingIndicator />
+
+      {/* ===================== MAP PICKER MODAL ===================== */}
+      {showMapPicker && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: '#fff', display: 'flex', flexDirection: 'column'
+        }}>
+          {/* Header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '12px 16px', background: '#1e293b', color: '#fff',
+            flexShrink: 0
+          }}>
+            <button
+              onClick={() => setShowMapPicker(false)}
+              style={{ background: 'none', border: 'none', color: '#fff', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}
+            >&#8592;</button>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>
+                {mapPickerTarget === 'pickup' ? 'Pickup location বেছে নাও' : 'Drop location বেছে নাও'}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.75 }}>Map-এ tap করো বা pin drag করো</div>
+            </div>
+          </div>
+
+          {/* Address preview bar */}
+          <div style={{
+            padding: '10px 16px', background: '#f1f5f9',
+            borderBottom: '1px solid #e2e8f0', flexShrink: 0,
+            fontSize: 13, color: '#334155', minHeight: 40
+          }}>
+            {mapPickerAddress || 'Map-এ কোনো জায়গায় tap করো...'}
+          </div>
+
+          {/* Leaflet Map */}
+          <div id="gramyatri-map-picker" style={{ flex: 1, width: '100%' }} />
+
+          {/* Confirm button */}
+          <div style={{ padding: '12px 16px', background: '#fff', flexShrink: 0 }}>
+            <button
+              id="map-confirm-btn"
+              onClick={() => {
+                const btn = document.getElementById('map-confirm-btn') as HTMLButtonElement
+                const lat = parseFloat(btn.dataset.lat || '0')
+                const lng = parseFloat(btn.dataset.lng || '0')
+                const addr = btn.dataset.addr || ''
+                if (lat && lng) handleMapPickerConfirm(lat, lng, addr)
+              }}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 12,
+                background: '#16a34a', color: '#fff', fontWeight: 700,
+                fontSize: 16, border: 'none', cursor: 'pointer'
+              }}
+            >
+              ✓ এই জায়গা confirm করো
+            </button>
+          </div>
+
+          {/* Leaflet init script */}
+          <MapPickerScript
+            onReady={(lat, lng, addr) => {
+              setMapPickerAddress(addr)
+              const btn = document.getElementById('map-confirm-btn') as HTMLButtonElement
+              if (btn) { btn.dataset.lat = String(lat); btn.dataset.lng = String(lng); btn.dataset.addr = addr }
+            }}
+            initialLat={mapPickerTarget === 'pickup' ? (pickupCoords?.lat ?? userLat ?? 26.0194) : (dropCoords?.lat ?? userLat ?? 26.0194)}
+            initialLng={mapPickerTarget === 'pickup' ? (pickupCoords?.lng ?? userLng ?? 92.9864) : (dropCoords?.lng ?? userLng ?? 92.9864)}
+          />
+        </div>
+      )}
 
       {/* ===================== SEARCHING OVERLAY ===================== */}
       <AnimatePresence>
@@ -1899,12 +2141,24 @@ export default function UserPanel() {
                       </div>
                       <div className="flex-1 space-y-2">
                         <div className="relative" ref={pickupRef}>
-                          <Input
-                            placeholder="Pickup location"
-                            value={pickup}
-                            onChange={(e) => handlePickupChange(e.target.value)}
-                            onFocus={() => { if (pickupSuggestions.length > 0) setShowPickupSuggestions(true) }}
-                          />
+                          <div className="flex gap-1">
+                            <Input
+                              placeholder="📍 Pickup — tap করে map থেকে বেছে নাও"
+                              value={pickup}
+                              readOnly
+                              onClick={() => openMapPicker('pickup')}
+                              className="flex-1 cursor-pointer"
+                              style={{ caretColor: 'transparent' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => openMapPicker('pickup')}
+                              style={{ padding:'0 10px', borderRadius:8, background:'#16a34a', border:'none', cursor:'pointer', flexShrink:0 }}
+                              title="Map থেকে বেছে নাও"
+                            >
+                              <MapPin size={16} color="#fff" />
+                            </button>
+                          </div>
                           <AnimatePresence>
                             {showPickupSuggestions && (
                               <motion.div
@@ -1928,12 +2182,24 @@ export default function UserPanel() {
                           </AnimatePresence>
                         </div>
                         <div className="relative" ref={dropRef}>
-                          <Input
-                            placeholder="Drop location"
-                            value={drop}
-                            onChange={(e) => handleDropChange(e.target.value)}
-                            onFocus={() => { if (dropSuggestions.length > 0) setShowDropSuggestions(true) }}
-                          />
+                          <div className="flex gap-1">
+                            <Input
+                              placeholder="🏁 Drop — tap করে map থেকে বেছে নাও"
+                              value={drop}
+                              readOnly
+                              onClick={() => openMapPicker('drop')}
+                              className="flex-1 cursor-pointer"
+                              style={{ caretColor: 'transparent' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => openMapPicker('drop')}
+                              style={{ padding:'0 10px', borderRadius:8, background:'#f97316', border:'none', cursor:'pointer', flexShrink:0 }}
+                              title="Map থেকে বেছে নাও"
+                            >
+                              <MapPin size={16} color="#fff" />
+                            </button>
+                          </div>
                           <AnimatePresence>
                             {showDropSuggestions && (
                               <motion.div
