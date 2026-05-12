@@ -129,7 +129,7 @@ const LOCATION_SUGGESTIONS = [
   'Lanka Court', 'Lanka Town Hall', 'Lanka Post Office', 'Lanka ATM',
   'Lanka Petrol Pump', 'Lanka Mosque', 'Lanka Mandir', 'Lanka PWD Office',
   // Lanka area sub-localities
-  'Azarbari', 'Jaysagar Lanka', 'Nowpara Lanka', 'Pub Lanka', 'Paschim Lanka',
+  'Azarbari', 'Kaki', 'Kaki Soni Bazar', 'Jaysagar Lanka', 'Nowpara Lanka', 'Pub Lanka', 'Paschim Lanka',
   'Raha Lanka Road', 'Lanka Tiniali', 'Lanka Chariali', 'Lanka Gaon',
   'Lanka Ward No 1', 'Lanka Ward No 2', 'Lanka Ward No 3',
   // Hojai district
@@ -167,6 +167,64 @@ const LOCAL_KNOWN_COORDS: Record<string, { lat: number; lng: number }> = {
   'hojai bazar': { lat: 26.0030, lng: 92.8562 },
   'lumding railway station': { lat: 25.7567, lng: 93.1746 },
   'lumding junction': { lat: 25.7567, lng: 93.1746 },
+}
+
+// GPS coordinate zones — GPS দিলে এই table থেকে সরাসরি এলাকার নাম বের হবে
+// Nominatim-এর উপর নির্ভর না করে নিজেই detect করবে
+const GPS_ZONES: Array<{ name: string; lat: number; lng: number; radius: number }> = [
+  // Lanka town core
+  { name: 'Lanka Main Bazar', lat: 26.0194, lng: 92.9864, radius: 200 },
+  { name: 'Lanka Railway Station', lat: 26.0186, lng: 92.9871, radius: 250 },
+  { name: 'Lanka Bus Stand', lat: 26.0198, lng: 92.9860, radius: 180 },
+  { name: 'Lanka Public School', lat: 26.0201, lng: 92.9855, radius: 200 },
+  { name: 'Lanka Hospital', lat: 26.0205, lng: 92.9870, radius: 220 },
+  { name: 'Lanka Police Station', lat: 26.0190, lng: 92.9862, radius: 150 },
+  { name: 'Lanka Post Office', lat: 26.0196, lng: 92.9858, radius: 150 },
+  { name: 'Lanka Court', lat: 26.0200, lng: 92.9850, radius: 180 },
+  { name: 'Lanka College', lat: 26.0208, lng: 92.9845, radius: 250 },
+  { name: 'Lanka PWD Office', lat: 26.0185, lng: 92.9855, radius: 150 },
+  // Lanka sub-localities (broader zones)
+  { name: 'Azarbari', lat: 26.0220, lng: 92.9890, radius: 500 },
+  { name: 'Jaysagar Lanka', lat: 26.0175, lng: 92.9845, radius: 450 },
+  { name: 'Nowpara Lanka', lat: 26.0210, lng: 92.9880, radius: 450 },
+  { name: 'Pub Lanka', lat: 26.0215, lng: 92.9900, radius: 500 },
+  { name: 'Paschim Lanka', lat: 26.0180, lng: 92.9830, radius: 500 },
+  { name: 'Lanka Tiniali', lat: 26.0188, lng: 92.9852, radius: 200 },
+  { name: 'Lanka Chariali', lat: 26.0192, lng: 92.9857, radius: 200 },
+  { name: 'Lanka Gaon', lat: 26.0170, lng: 92.9840, radius: 600 },
+  { name: 'Raha Lanka Road', lat: 26.0160, lng: 92.9820, radius: 600 },
+  // Hojai
+  { name: 'Hojai Bus Stand', lat: 26.0028, lng: 92.8560, radius: 250 },
+  { name: 'Hojai Railway Station', lat: 26.0020, lng: 92.8552, radius: 300 },
+  { name: 'Hojai Bazar', lat: 26.0030, lng: 92.8562, radius: 350 },
+  { name: 'Hojai Hospital', lat: 26.0035, lng: 92.8570, radius: 250 },
+  { name: 'Hojai Court', lat: 26.0025, lng: 92.8545, radius: 250 },
+  { name: 'Hojai College', lat: 26.0040, lng: 92.8580, radius: 300 },
+  // Nearby towns
+  { name: 'Lumding Railway Station', lat: 25.7567, lng: 93.1746, radius: 400 },
+  { name: 'Nagaon Town', lat: 26.3466, lng: 92.6843, radius: 800 },
+  { name: 'Nagaon Railway Station', lat: 26.3500, lng: 92.6900, radius: 400 },
+  { name: 'Raha', lat: 26.2167, lng: 92.8333, radius: 700 },
+  { name: 'Chaparmukh', lat: 26.1833, lng: 92.6000, radius: 700 },
+  { name: 'Jagiroad', lat: 26.2833, lng: 92.1833, radius: 700 },
+  { name: 'Doboka', lat: 25.9500, lng: 92.8000, radius: 700 },
+]
+
+// GPS coordinates দিলে haversine formula দিয়ে সবচেয়ে কাছের zone detect করে নাম দেয়
+function detectZoneFromCoords(lat: number, lng: number): string | null {
+  const toRad = (d: number) => d * Math.PI / 180
+  const R = 6371000
+  let best: { name: string; dist: number } | null = null
+  for (const zone of GPS_ZONES) {
+    const dLat = toRad(lat - zone.lat)
+    const dLng = toRad(lng - zone.lng)
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat)) * Math.cos(toRad(zone.lat)) * Math.sin(dLng/2)**2
+    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    if (dist <= zone.radius) {
+      if (!best || dist < best.dist) best = { name: zone.name, dist }
+    }
+  }
+  return best ? best.name : null
 }
 
 // Bilingual translations — English & Assamese
@@ -819,8 +877,15 @@ export default function UserPanel() {
         setUserLng(lng)
 
         try {
-          // zoom=18 = building level, zoom=16 = street, zoom=14 = village
-          // Try highest zoom first for most precise name
+          // Step 1: নিজের GPS_ZONES table থেকে আগে check করো (সবচেয়ে accurate)
+          const zoneName = detectZoneFromCoords(lat, lng)
+          if (zoneName) {
+            setPickup(prev => prev || zoneName + ' (GPS)')
+            setPickupCoords({ lat, lng })
+            return
+          }
+
+          // Step 2: Zone না পেলে Nominatim দিয়ে try করো
           const tryReverse = async (zoom: number): Promise<string> => {
             const res = await fetch(
               `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1&namedetails=1&accept-language=as,en`,
@@ -830,26 +895,18 @@ export default function UserPanel() {
             const data = await res.json()
             if (data.error) return ''
             const addr = data.address || {}
-
             const parts: string[] = []
-            // Most specific first: neighbourhood/quarter/suburb
             const micro = addr.neighbourhood || addr.quarter || addr.residential || addr.hamlet
             if (micro) parts.push(micro)
-            // Village or suburb
             const village = addr.village || addr.suburb || addr.town
             if (village && !parts.includes(village)) parts.push(village)
-            // Road if no micro detail
             if (parts.length === 0) {
               const road = addr.road || addr.pedestrian
               if (road) parts.push(road)
             }
-            // City/district
             const city = addr.city || addr.county || addr.state_district
             if (city && !parts.includes(city)) parts.push(city)
-
-            return parts.length > 0
-              ? parts.slice(0, 2).join(', ') + ' (GPS)'
-              : ''
+            return parts.length > 0 ? parts.slice(0, 2).join(', ') + ' (GPS)' : ''
           }
 
           let locationName = await tryReverse(18)
@@ -859,9 +916,7 @@ export default function UserPanel() {
             locationName = `${lat.toFixed(4)}, ${lng.toFixed(4)} (GPS)`
           }
 
-          // Only set pickup if it's currently empty
           setPickup(prev => prev || locationName)
-          // Also set pickup coordinates so distance calculation works immediately
           setPickupCoords({ lat, lng })
         } catch {
           // Silent fail for auto-detect
@@ -1027,20 +1082,23 @@ export default function UserPanel() {
           }
         }
 
-        let locationName = ''
-        try {
-          // Try zoom=18 (building/street level) first for most precise name
-          locationName = await reverseGeocode(18)
-          // If nothing at 18, try zoom=16 (street level)
-          if (!locationName || locationName === ' (GPS)') {
-            locationName = await reverseGeocode(16)
+        // Step 1: নিজের GPS_ZONES table থেকে সবার আগে check (সবচেয়ে accurate)
+        const zoneName = detectZoneFromCoords(lat, lng)
+        let locationName = zoneName ? zoneName + ' (GPS)' : ''
+
+        // Step 2: Zone না পেলে Nominatim দিয়ে try
+        if (!locationName) {
+          try {
+            locationName = await reverseGeocode(18)
+            if (!locationName || locationName === ' (GPS)') {
+              locationName = await reverseGeocode(16)
+            }
+            if (!locationName || locationName === ' (GPS)') {
+              locationName = await reverseGeocode(14)
+            }
+          } catch {
+            // Reverse geocoding failed
           }
-          // If still nothing, try zoom=14 (village level)
-          if (!locationName || locationName === ' (GPS)') {
-            locationName = await reverseGeocode(14)
-          }
-        } catch {
-          // Reverse geocoding failed
         }
 
         if (!locationName) {
